@@ -68,7 +68,7 @@
 // ── Board-specific pin defaults ─────────────────────────────────
 #ifdef ARDUINO_ARCH_ESP32
   // ESP32-CAM: GPIO 13 (RX) and GPIO 12 (TX) are free when
-  // SD_MMC runs in 1-bit mode.  GPIO 32/33 are NOT available on
+  // SD_MMC runs in 1-bit mode. GPIO 32/33 are NOT available on
   // the AI-Thinker ESP32-CAM (used by camera / on-board LED).
   #ifndef XBEE_RX_PIN
     #define XBEE_RX_PIN 13
@@ -189,9 +189,8 @@ bool initStorage() {
     return true;
 }
 
-void ensureDirectory(const char* path) {
-    Dir d = LittleFS.openDir(path);
-    (void)d;  // LittleFS creates parent dirs on file write
+void ensureDirectory(const char* /* path */) {
+    // LittleFS creates parent dirs automatically on file write
 }
 
 String readFile(const char* path) {

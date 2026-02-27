@@ -43,10 +43,14 @@ GND           ────────── GND
 
 ### GPIO 12 Strapping Note
 
-GPIO 12 is a strapping pin that selects flash voltage at boot. Keep
-it **LOW during power-on** (which is the idle state of a UART TX line,
-so this is normally fine). If you experience boot failures, disconnect
-the XBee during programming and reconnect afterwards.
+GPIO 12 (MTDI) is a strapping pin that selects the flash voltage at
+boot. If it is **HIGH** at power-on the ESP32 expects 1.8 V flash,
+which will cause boot failures on modules with 3.3 V flash (like the
+ESP32-CAM). A UART TX idle state is HIGH, but since GPIO 12 is the
+*node's* TX output, not an input from the XBee, it stays under ESP32
+control and defaults to LOW at reset. If you still experience boot
+issues, disconnect the XBee during programming and reconnect
+afterwards.
 
 ### SD Card
 

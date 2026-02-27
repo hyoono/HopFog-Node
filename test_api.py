@@ -149,7 +149,7 @@ def main():
     print(f"Target: {BASE_URL}")
 
     # Connectivity check
-    print("\nChecking connectivity …")
+    print("\nChecking connectivity ...")
     try:
         requests.get(f"{BASE_URL}/api/health", timeout=5)
         print("✓ Node is reachable")
