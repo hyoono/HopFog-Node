@@ -9,6 +9,8 @@ build/
 
 # Configuration with secrets
 include/config.h
+pc_node/config.json
+pc_node/hopfog_data/
 
 # IDE files
 .vscode/

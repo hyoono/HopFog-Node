@@ -1,0 +1,10 @@
+{
+    "node_id": "pc-node-01",
+    "xbee_port": "COM3",
+    "xbee_baud": 9600,
+    "http_host": "0.0.0.0",
+    "http_port": 8080,
+    "heartbeat_interval": 30,
+    "sync_interval": 60,
+    "data_dir": "hopfog_data"
+}

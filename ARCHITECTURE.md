@@ -12,11 +12,11 @@
 │  HopFog Admin    │   (900 MHz / 2.4 GHz)  │    HopFog Node           │
 │  (HopFog-Web)    │                         │    (this repo)           │
 │  ESP32-CAM       │                         │    ESP32-CAM  or         │
-│  + Web UI        │                         │    Wemos D1 Mini         │
-│  + Auth / DB     │                         │    Headless API only     │
+│  + Web UI        │                         │    Wemos D1 Mini  or     │
+│  + Auth / DB     │                         │    Windows PC (PoC)      │
 └──────────────────┘                         └──────────────────────────┘
         ▲                                              ▲
-        │ WiFi                                         │ WiFi
+        │ WiFi                                         │ WiFi / Hotspot
         ▼                                              ▼
    ┌──────────┐                                   ┌──────────┐
    │ Admin's  │                                   │ Client   │
@@ -30,16 +30,16 @@ locally and relays changes back to the admin via XBee.
 
 ---
 
-## Board Variants
+## Platform Variants
 
-| | ESP32-CAM (AI-Thinker) | Wemos D1 Mini (ESP8266) |
-|---|---|---|
-| CPU | Dual-core 240 MHz | Single-core 80 MHz |
-| RAM | 520 KB | 80 KB |
-| Flash | 4 MB | 4 MB |
-| XBee serial | Hardware UART2 (GPIO 13 / 12) | SoftwareSerial (D5 / D6) |
-| Storage | SD card (SD_MMC 1-bit) | LittleFS (on-chip flash) |
-| PlatformIO env | `esp32cam` | `d1_mini` |
+| | ESP32-CAM (AI-Thinker) | Wemos D1 Mini (ESP8266) | Windows PC (PoC) |
+|---|---|---|---|
+| CPU | Dual-core 240 MHz | Single-core 80 MHz | Desktop CPU |
+| RAM | 520 KB | 80 KB | System RAM |
+| Flash | 4 MB | 4 MB | Disk |
+| XBee serial | Hardware UART2 (GPIO 13 / 12) | SoftwareSerial (D5 / D6) | USB serial (pyserial) |
+| Storage | SD card (SD_MMC 1-bit) | LittleFS (on-chip flash) | Local JSON files |
+| Build / Run | `pio run -e esp32cam` | `pio run -e d1_mini` | `python hopfog_node.py` |
 
 ---
 
@@ -261,13 +261,13 @@ Same schema as admin for compatibility:
                            │ XBee
               ┌────────────┼────────────┐
               │            │            │
-       ┌──────▼──────┐ ┌──▼──────┐ ┌──▼──────┐
-       │   Node A    │ │  Node B │ │  Node C │
-       │  ESP32-CAM  │ │  D1 Mini│ │  D1 Mini│
-       │  + XBee     │ │  + XBee │ │  + XBee │
-       └─────────────┘ └─────────┘ └─────────┘
+       ┌──────▼──────┐ ┌──▼──────┐ ┌──▼──────────┐
+       │   Node A    │ │  Node B │ │  Node C      │
+       │  ESP32-CAM  │ │  D1 Mini│ │  Windows PC  │
+       │  + XBee     │ │  + XBee │ │  + XBee USB  │
+       └─────────────┘ └─────────┘ └──────────────┘
             ▲               ▲           ▲
-       WiFi │          WiFi │      WiFi │
+       WiFi │          WiFi │    Hotspot │
             ▼               ▼           ▼
        ┌─────────┐   ┌─────────┐  ┌─────────┐
        │ Clients │   │ Clients │  │ Clients │
@@ -276,4 +276,5 @@ Same schema as admin for compatibility:
 
 Multiple nodes can be deployed to blanket a larger area. Each node
 independently caches data and relays changes to the central admin.
-Nodes can be a mix of ESP32-CAM and Wemos D1 Mini boards.
+Nodes can be a mix of ESP32-CAM, Wemos D1 Mini, or a Windows PC
+running the Python proof-of-concept.
