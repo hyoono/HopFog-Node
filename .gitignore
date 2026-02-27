@@ -1,0 +1,40 @@
+# ESP32/Arduino build artifacts
+build/
+*.o
+*.d
+*.elf
+*.bin
+*.map
+*.hex
+
+# Configuration with secrets
+esp32_node/config.h
+
+# IDE files
+.vscode/
+*.code-workspace
+.idea/
+
+# Arduino IDE
+*.ino.cpp
+*.ino.hex
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.env
+
+# Logs
+*.log
