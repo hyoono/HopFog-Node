@@ -321,6 +321,10 @@ EOF
 
 > **Note:** The node accepts any password during login (it's a trusted
 > local network). Password verification happens on the admin server.
+> **⚠ Security warning:** This means anyone on the node's WiFi can log
+> in as any user. Only deploy the node on networks where physical access
+> is already controlled. Enable XBee AES encryption if data privacy is
+> required. Do not expose the node to the public internet.
 
 ---
 

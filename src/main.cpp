@@ -80,6 +80,9 @@
 #ifndef DNS_DOMAIN
   #define DNS_DOMAIN "hopfog.com"
 #endif
+#ifndef ADMIN_USER_ID
+  #define ADMIN_USER_ID 1
+#endif
 
 // ── Board-specific pin defaults ─────────────────────────────────
 #ifdef ARDUINO_ARCH_ESP32
@@ -455,6 +458,8 @@ String getChatMessages(int conversationId, int userId) {
 // Add a chat message
 bool addChatMessage(int conversationId, int senderId, const String& text) {
     // Add to chat_messages.json
+    // Note: sent_at uses uptime seconds (millis()/1000), not wall-clock time.
+    // Absolute timestamps require NTP which is not available on all deployments.
     String raw = readFile(CHAT_MESSAGES_FILE);
     DynamicJsonDocument doc(16384);
     DeserializationError err = deserializeJson(doc, raw);
@@ -537,9 +542,9 @@ int findOrCreateConversation(int user1, int user2) {
     return newId;
 }
 
-// Find or create the SOS conversation (user to admin user ID 1)
+// Find or create the SOS conversation (user to admin)
 int findOrCreateSosConversation(int userId) {
-    return findOrCreateConversation(userId, 1);  // admin is user ID 1
+    return findOrCreateConversation(userId, ADMIN_USER_ID);
 }
 
 // ========================================

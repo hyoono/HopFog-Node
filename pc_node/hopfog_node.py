@@ -458,6 +458,7 @@ def api_relay():
 
 
 # ── Mobile app data helpers ──────────────────────────────────────
+ADMIN_USER_ID = 1
 def _get_username_by_id(user_id: int) -> str:
     users = _read_json(USERS_FILE, [])
     for u in users:
@@ -628,7 +629,7 @@ def mobile_sos():
     user_id = data.get("user_id", 0)
     if not user_id:
         return jsonify({"error": "Missing user_id"}), 400
-    conv_id = _find_or_create_conversation(user_id, 1)
+    conv_id = _find_or_create_conversation(user_id, ADMIN_USER_ID)
     xbee_send_command("SOS_ALERT", {
         "user_id": user_id,
         "conversation_id": conv_id,
