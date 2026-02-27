@@ -80,21 +80,23 @@ See [`pc_node/README.md`](pc_node/README.md) for full details.
 ## API Endpoints
 
 All responses are JSON. No authentication is required.
+Endpoint paths match the [HopFog-Web](https://github.com/hyoono/HopFog-Web) admin
+so that clients can talk to either system using the same URLs.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Node health check |
 | GET | `/api/stats` | Node statistics (heap, uptime, counts) |
-| GET | `/api/fognodes` | List fog nodes (local cache) |
-| POST | `/api/fognodes/add` | Add a fog node (also relayed to admin) |
+| GET | `/api/fog-devices` | List fog devices (local cache) |
+| POST | `/api/fog-devices/register` | Register a fog device (also relayed to admin) |
 | GET | `/api/messages` | List messages (local cache) |
-| POST | `/api/messages/add` | Add a message (also relayed to admin) |
-| POST | `/api/relay` | Forward raw JSON to admin via XBee |
+| POST | `/api/messages` | Send a message (also relayed to admin) |
+| POST | `/api/xbee/broadcast` | Forward raw JSON to admin via XBee |
 
 ### Example – add a message
 
 ```bash
-curl -X POST http://<node-ip>/api/messages/add \
+curl -X POST http://<node-ip>/api/messages \
      -d "from=alice&to=bob&message=Hello+from+node"
 ```
 

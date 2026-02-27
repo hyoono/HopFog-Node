@@ -66,9 +66,9 @@ def test_get_stats():
 
 
 def test_get_fognodes():
-    _test(3, "GET /api/fognodes")
+    _test(3, "GET /api/fog-devices")
     try:
-        r = requests.get(f"{BASE_URL}/api/fognodes", timeout=5)
+        r = requests.get(f"{BASE_URL}/api/fog-devices", timeout=5)
         print(f"Status: {r.status_code}")
         _pprint(r.json())
         return r.status_code == 200
@@ -78,7 +78,7 @@ def test_get_fognodes():
 
 
 def test_add_fognode():
-    _test(4, "POST /api/fognodes/add")
+    _test(4, "POST /api/fog-devices/register")
     data = {
         "device_name": "TestNode-Python",
         "ip_address": "192.168.1.50",
@@ -86,7 +86,7 @@ def test_add_fognode():
     }
     print(f"Payload: {data}")
     try:
-        r = requests.post(f"{BASE_URL}/api/fognodes/add", data=data, timeout=5)
+        r = requests.post(f"{BASE_URL}/api/fog-devices/register", data=data, timeout=5)
         print(f"Status: {r.status_code}")
         _pprint(r.json())
         return r.status_code == 200
@@ -108,7 +108,7 @@ def test_get_messages():
 
 
 def test_add_message():
-    _test(6, "POST /api/messages/add")
+    _test(6, "POST /api/messages")
     data = {
         "from": "user1",
         "to": "user2",
@@ -116,7 +116,7 @@ def test_add_message():
     }
     print(f"Payload: {data}")
     try:
-        r = requests.post(f"{BASE_URL}/api/messages/add", data=data, timeout=5)
+        r = requests.post(f"{BASE_URL}/api/messages", data=data, timeout=5)
         print(f"Status: {r.status_code}")
         _pprint(r.json())
         return r.status_code == 200
@@ -126,12 +126,12 @@ def test_add_message():
 
 
 def test_relay():
-    _test(7, "POST /api/relay")
+    _test(7, "POST /api/xbee/broadcast")
     payload = json.dumps({"cmd": "PING", "node_id": "test"})
     print(f"Payload: {payload}")
     try:
         r = requests.post(
-            f"{BASE_URL}/api/relay",
+            f"{BASE_URL}/api/xbee/broadcast",
             data=payload,
             headers={"Content-Type": "application/json"},
             timeout=5,

@@ -617,14 +617,14 @@ void setup() {
         Serial.println("\n[WIFI] Connection failed – will keep trying");
     }
 
-    // API routes (headless – JSON only)
-    server.on("/api/health",       HTTP_GET,  handleHealth);
-    server.on("/api/stats",        HTTP_GET,  handleStats);
-    server.on("/api/fognodes",     HTTP_GET,  handleGetFogNodes);
-    server.on("/api/fognodes/add", HTTP_POST, handleAddFogNode);
-    server.on("/api/messages",     HTTP_GET,  handleGetMessages);
-    server.on("/api/messages/add", HTTP_POST, handleAddMessage);
-    server.on("/api/relay",        HTTP_POST, handleRelay);
+    // API routes – paths match HopFog-Web admin for seamless use
+    server.on("/api/health",               HTTP_GET,  handleHealth);
+    server.on("/api/stats",                HTTP_GET,  handleStats);
+    server.on("/api/fog-devices",          HTTP_GET,  handleGetFogNodes);
+    server.on("/api/fog-devices/register", HTTP_POST, handleAddFogNode);
+    server.on("/api/messages",             HTTP_GET,  handleGetMessages);
+    server.on("/api/messages",             HTTP_POST, handleAddMessage);
+    server.on("/api/xbee/broadcast",       HTTP_POST, handleRelay);
     server.onNotFound(handleNotFound);
     server.begin();
     Serial.println("[HTTP] API server started");

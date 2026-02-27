@@ -370,12 +370,12 @@ def api_stats():
     )
 
 
-@app.route("/api/fognodes", methods=["GET"])
+@app.route("/api/fog-devices", methods=["GET"])
 def api_get_fog_nodes():
     return jsonify(get_fog_nodes())
 
 
-@app.route("/api/fognodes/add", methods=["POST"])
+@app.route("/api/fog-devices/register", methods=["POST"])
 def api_add_fog_node():
     name = request.form.get("device_name", "")
     ip = request.form.get("ip_address", "")
@@ -403,7 +403,7 @@ def api_get_messages():
     return jsonify(get_messages())
 
 
-@app.route("/api/messages/add", methods=["POST"])
+@app.route("/api/messages", methods=["POST"])
 def api_add_message():
     from_user = request.form.get("from", "")
     to_user = request.form.get("to", "")
@@ -424,7 +424,7 @@ def api_add_message():
     )
 
 
-@app.route("/api/relay", methods=["POST"])
+@app.route("/api/xbee/broadcast", methods=["POST"])
 def api_relay():
     body = request.get_data(as_text=True)
     if not body:

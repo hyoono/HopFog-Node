@@ -105,8 +105,10 @@ locally and relays changes back to the admin via XBee.
 │                   API Layer                          │
 │  ┌─────────────────────────────────────────────┐   │
 │  │  REST API (JSON only – no HTML)             │   │
-│  │  /api/health · /api/stats · /api/fognodes   │   │
-│  │  /api/messages · /api/relay                 │   │
+│  │  Paths match HopFog-Web admin API           │   │
+│  │  /api/health · /api/stats                   │   │
+│  │  /api/fog-devices · /api/messages           │   │
+│  │  /api/xbee/broadcast                        │   │
 │  └─────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
                         │
@@ -168,15 +170,18 @@ All XBee traffic is newline-delimited JSON:
 
 ### 5. API Endpoint Map
 
+Paths match the HopFog-Web admin so that clients can use either
+system with the same URLs.
+
 ```
 /api/
-├── GET  /api/health         → {"status":"ok","node_id":"...","uptime":...}
-├── GET  /api/stats          → System statistics
-├── GET  /api/fognodes       → List fog nodes (local cache)
-├── POST /api/fognodes/add   → Add fog node + relay to admin
-├── GET  /api/messages       → List messages (local cache)
-├── POST /api/messages/add   → Add message + relay to admin
-└── POST /api/relay          → Forward raw JSON to admin via XBee
+├── GET  /api/health                → {"status":"ok","node_id":"...","uptime":...}
+├── GET  /api/stats                 → System statistics
+├── GET  /api/fog-devices           → List fog devices (local cache)
+├── POST /api/fog-devices/register  → Register fog device + relay to admin
+├── GET  /api/messages              → List messages (local cache)
+├── POST /api/messages              → Send message + relay to admin
+└── POST /api/xbee/broadcast        → Forward raw JSON to admin via XBee
 ```
 
 ### 6. Storage Database

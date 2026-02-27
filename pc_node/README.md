@@ -87,23 +87,23 @@ On macOS / Linux the port is usually `/dev/ttyUSB0` or
 
 ## API Endpoints
 
-Same as the embedded firmware:
+Same as the embedded firmware and HopFog-Web admin:
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check |
 | GET | `/api/stats` | Node statistics |
-| GET | `/api/fognodes` | List fog nodes |
-| POST | `/api/fognodes/add` | Add fog node (relayed to admin) |
+| GET | `/api/fog-devices` | List fog devices |
+| POST | `/api/fog-devices/register` | Register fog device (relayed to admin) |
 | GET | `/api/messages` | List messages |
-| POST | `/api/messages/add` | Add message (relayed to admin) |
-| POST | `/api/relay` | Forward raw JSON to admin via XBee |
+| POST | `/api/messages` | Send message (relayed to admin) |
+| POST | `/api/xbee/broadcast` | Forward raw JSON to admin via XBee |
 
 ### Example
 
 ```bash
 curl http://localhost:8080/api/health
-curl -X POST http://localhost:8080/api/messages/add \
+curl -X POST http://localhost:8080/api/messages \
      -d "from=alice&to=bob&message=Hello+from+PC"
 ```
 
