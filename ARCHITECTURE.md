@@ -11,9 +11,9 @@
 ┌──────────────────┐ ◄────────────────────► ┌──────────────────────────┐
 │  HopFog Admin    │   (900 MHz / 2.4 GHz)  │    HopFog Node           │
 │  (HopFog-Web)    │                         │    (this repo)           │
-│  ESP32-CAM       │                         │    ESP32-CAM             │
-│  + Web UI        │                         │    Headless API only     │
-│  + Auth / DB     │                         │    + Local SD cache      │
+│  ESP32-CAM       │                         │    ESP32-CAM  or         │
+│  + Web UI        │                         │    Wemos D1 Mini         │
+│  + Auth / DB     │                         │    Headless API only     │
 └──────────────────┘                         └──────────────────────────┘
         ▲                                              ▲
         │ WiFi                                         │ WiFi
@@ -26,7 +26,20 @@
 
 The **Node** extends the admin's coverage area. Any client within WiFi
 range of the node can use the same REST API calls. The node stores data
-locally on its SD card and relays changes back to the admin via XBee.
+locally and relays changes back to the admin via XBee.
+
+---
+
+## Board Variants
+
+| | ESP32-CAM (AI-Thinker) | Wemos D1 Mini (ESP8266) |
+|---|---|---|
+| CPU | Dual-core 240 MHz | Single-core 80 MHz |
+| RAM | 520 KB | 80 KB |
+| Flash | 4 MB | 4 MB |
+| XBee serial | Hardware UART2 (GPIO 13 / 12) | SoftwareSerial (D5 / D6) |
+| Storage | SD card (SD_MMC 1-bit) | LittleFS (on-chip flash) |
+| PlatformIO env | `esp32cam` | `d1_mini` |
 
 ---
 
@@ -34,6 +47,7 @@ locally on its SD card and relays changes back to the admin via XBee.
 
 ### 1. Hardware Layer
 
+#### ESP32-CAM
 ```
 ┌─────────────────────────────────────────────────────┐
 │             ESP32-CAM (AI-Thinker)                  │
@@ -50,7 +64,33 @@ locally on its SD card and relays changes back to the admin via XBee.
 │                                                     │
 │  Camera hardware present but NOT used               │
 └─────────────────────────────────────────────────────┘
-         │ GPIO 32 (RX)  /  GPIO 33 (TX)
+         │ GPIO 13 (RX)  /  GPIO 12 (TX)
+         ▼
+┌─────────────────────────────────────────────────────┐
+│              XBee Radio Module                      │
+│  UART 9600 baud · Mesh / P2P topology              │
+└─────────────────────────────────────────────────────┘
+```
+
+#### Wemos D1 Mini
+```
+┌─────────────────────────────────────────────────────┐
+│             Wemos D1 Mini (ESP8266)                 │
+│                                                     │
+│  ┌────────────────────────────────────────────┐    │
+│  │  ESP8266 Single-Core 80 MHz                │    │
+│  │  80 KB RAM · 4 MB Flash                    │    │
+│  └────────────────────────────────────────────┘    │
+│                                                     │
+│  ┌───────────────────────┐                         │
+│  │  WiFi 802.11 b/g/n    │                         │
+│  │  2.4 GHz              │                         │
+│  └───────────────────────┘                         │
+│                                                     │
+│  Built-in USB for programming + serial              │
+└─────────────────────────────────────────────────────┘
+         │ D5/GPIO 14 (RX)  /  D6/GPIO 12 (TX)
+         │ (SoftwareSerial)
          ▼
 ┌─────────────────────────────────────────────────────┐
 │              XBee Radio Module                      │
@@ -73,15 +113,17 @@ locally on its SD card and relays changes back to the admin via XBee.
 ┌─────────────────────────────────────────────────────┐
 │              Communication Layer                     │
 │  ┌─────────────────────┐  ┌─────────────────────┐  │
-│  │  WiFi WebServer     │  │  XBee Serial (UART2)│  │
-│  │  HTTP req/resp      │  │  JSON line protocol │  │
+│  │  WiFi WebServer     │  │  XBee Serial         │  │
+│  │  HTTP req/resp      │  │  JSON line protocol  │  │
 │  └─────────────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────┘
                         │
 ┌─────────────────────────────────────────────────────┐
 │              Storage Layer                           │
 │  ┌─────────────────────────────────────────────┐   │
-│  │  SD Card (SD_MMC 1-bit)                     │   │
+│  │  ESP32-CAM: SD Card (SD_MMC 1-bit)          │   │
+│  │  D1 Mini:   LittleFS (on-chip flash)        │   │
+│  │                                              │   │
 │  │  /hopfog/fog_nodes.json                     │   │
 │  │  /hopfog/messages.json                      │   │
 │  │  /hopfog/stats.json                         │   │
@@ -94,20 +136,20 @@ locally on its SD card and relays changes back to the admin via XBee.
 ```
 ┌──────────┐         ┌──────────────┐         ┌────────────┐
 │  Client  │  HTTP   │  Node        │  XBee   │  Admin     │
-│  device  │ ──────► │  ESP32-CAM   │ ──────► │  ESP32-CAM │
+│  device  │ ──────► │  (any board) │ ──────► │  ESP32-CAM │
 │          │ ◄────── │              │ ◄────── │            │
 └──────────┘  JSON   └──────────────┘  JSON   └────────────┘
                           │    ▲
                      write│    │read
                           ▼    │
                      ┌──────────────┐
-                     │   SD Card    │
-                     │  (JSON DB)   │
+                     │  Storage     │
+                     │  SD / LFS   │
                      └──────────────┘
 ```
 
 1. Client sends HTTP request to the node.
-2. Node processes locally (read / write SD card).
+2. Node processes locally (read / write storage).
 3. Node relays the change to admin via XBee.
 4. Admin may push updates back (sync, broadcasts).
 
@@ -137,12 +179,12 @@ All XBee traffic is newline-delimited JSON:
 └── POST /api/relay          → Forward raw JSON to admin via XBee
 ```
 
-### 6. SD Card Database
+### 6. Storage Database
 
 Same schema as admin for compatibility:
 
 ```
-/sdcard/hopfog/
+/hopfog/
 ├── fog_nodes.json   # [{id, device_name, ip_address, status, added_at}, ...]
 ├── messages.json    # [{id, from, to, message, timestamp, node}, ...]
 └── stats.json       # {fog_nodes_count, active_fog_nodes, total_messages}
@@ -158,11 +200,11 @@ Same schema as admin for compatibility:
 
 ### 8. Memory Budget
 
+#### ESP32-CAM
 ```
 ┌──────────────────────────────────────────┐
 │  Flash (4 MB)                            │
-│  ├─ Program code           ~150 KB       │
-│  └─ (no HTML / PROGMEM pages)            │
+│  └─ Program code           ~150 KB       │
 ├──────────────────────────────────────────┤
 │  RAM (520 KB)                            │
 │  ├─ WebServer buffers       ~60 KB       │
@@ -176,8 +218,22 @@ Same schema as admin for compatibility:
 └──────────────────────────────────────────┘
 ```
 
-Because the node has **no HTML pages** stored in PROGMEM, it has
-significantly more free heap than the admin.
+#### Wemos D1 Mini
+```
+┌──────────────────────────────────────────┐
+│  Flash (4 MB)                            │
+│  ├─ Program code           ~300 KB       │
+│  └─ LittleFS partition     ~1 MB         │
+│     └─ Persistent JSON database          │
+├──────────────────────────────────────────┤
+│  RAM (80 KB)                             │
+│  ├─ WebServer buffers       ~8 KB        │
+│  ├─ JSON parsing            ~10 KB       │
+│  ├─ SoftwareSerial buf      ~1 KB        │
+│  ├─ Stack & variables       ~10 KB       │
+│  └─ Free heap              ~40 KB        │
+└──────────────────────────────────────────┘
+```
 
 ### 9. Security Model
 
@@ -207,8 +263,8 @@ significantly more free heap than the admin.
               │            │            │
        ┌──────▼──────┐ ┌──▼──────┐ ┌──▼──────┐
        │   Node A    │ │  Node B │ │  Node C │
-       │  ESP32-CAM  │ │         │ │         │
-       │  + XBee     │ │         │ │         │
+       │  ESP32-CAM  │ │  D1 Mini│ │  D1 Mini│
+       │  + XBee     │ │  + XBee │ │  + XBee │
        └─────────────┘ └─────────┘ └─────────┘
             ▲               ▲           ▲
        WiFi │          WiFi │      WiFi │
@@ -220,3 +276,4 @@ significantly more free heap than the admin.
 
 Multiple nodes can be deployed to blanket a larger area. Each node
 independently caches data and relays changes to the central admin.
+Nodes can be a mix of ESP32-CAM and Wemos D1 Mini boards.

@@ -1,76 +1,113 @@
 /*
- * HopFog Node - ESP32-CAM Range Extender
+ * HopFog Node – Range Extender
  *
  * Headless node that connects to the HopFog admin (HopFog-Web) via XBee.
  * Replicates the admin API endpoints locally so nearby clients can use
  * the same REST calls without reaching the admin directly.
  *
- * Features:
- *  - XBee serial link to admin (Serial2 on GPIO 32/33)
- *  - WiFi REST API (no web UI, no login page)
- *  - SD card persistent storage (JSON, same schema as admin)
- *  - Auto-registration with admin on startup
- *  - Periodic heartbeat / keep-alive
- *  - Message relay between local clients and admin
+ * Supported boards (select via PlatformIO environment):
+ *   esp32cam  – ESP32-CAM (AI-Thinker), XBee on Serial2, SD card storage
+ *   d1_mini   – Wemos D1 Mini (ESP8266), XBee on SoftwareSerial, LittleFS
  *
- * Hardware: ESP32-CAM (AI-Thinker) + XBee module
+ * Features:
+ *   - XBee serial link to admin
+ *   - WiFi REST API (no web UI, no login page)
+ *   - Persistent local storage (SD card or LittleFS)
+ *   - Auto-registration with admin on startup
+ *   - Periodic heartbeat / keep-alive
+ *   - Message relay between local clients and admin
  */
 
-#include <WiFi.h>
-#include <WebServer.h>
-#include <SD_MMC.h>
+// ========================================
+// Platform-specific includes
+// ========================================
+#ifdef ARDUINO_ARCH_ESP32
+  #include <WiFi.h>
+  #include <WebServer.h>
+  #include <SD_MMC.h>
+#elif defined(ARDUINO_ARCH_ESP8266)
+  #include <ESP8266WiFi.h>
+  #include <ESP8266WebServer.h>
+  #include <LittleFS.h>
+  #include <SoftwareSerial.h>
+#endif
+
 #include <ArduinoJson.h>
 
 // ========================================
 // Try to load user config; fall back to defaults
-// Create esp32_node/config.h from config.h.example
+// Copy include/config.h.example → include/config.h
 // ========================================
 #if __has_include("config.h")
-#include "config.h"
+  #include "config.h"
 #endif
 
-// Defaults (overridden by config.h when present)
+// ── Defaults (overridden by config.h when present) ──────────────
 #ifndef WIFI_SSID
-#define WIFI_SSID "YOUR_WIFI_SSID"
+  #define WIFI_SSID "YOUR_WIFI_SSID"
 #endif
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+  #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 #endif
 #ifndef NODE_ID
-#define NODE_ID "node-01"
+  #define NODE_ID "node-01"
 #endif
 #ifndef XBEE_BAUD
-#define XBEE_BAUD 9600
-#endif
-#ifndef XBEE_RX_PIN
-#define XBEE_RX_PIN 32
-#endif
-#ifndef XBEE_TX_PIN
-#define XBEE_TX_PIN 33
+  #define XBEE_BAUD 9600
 #endif
 #ifndef WEB_SERVER_PORT
-#define WEB_SERVER_PORT 80
+  #define WEB_SERVER_PORT 80
 #endif
 #ifndef HEARTBEAT_INTERVAL_MS
-#define HEARTBEAT_INTERVAL_MS 30000
+  #define HEARTBEAT_INTERVAL_MS 30000
 #endif
 #ifndef SYNC_INTERVAL_MS
-#define SYNC_INTERVAL_MS 60000
+  #define SYNC_INTERVAL_MS 60000
+#endif
+
+// ── Board-specific pin defaults ─────────────────────────────────
+#ifdef ARDUINO_ARCH_ESP32
+  // ESP32-CAM: GPIO 13 (RX) and GPIO 12 (TX) are free when
+  // SD_MMC runs in 1-bit mode.  GPIO 32/33 are NOT available on
+  // the AI-Thinker ESP32-CAM (used by camera / on-board LED).
+  #ifndef XBEE_RX_PIN
+    #define XBEE_RX_PIN 13
+  #endif
+  #ifndef XBEE_TX_PIN
+    #define XBEE_TX_PIN 12
+  #endif
+#elif defined(ARDUINO_ARCH_ESP8266)
+  // Wemos D1 Mini: D5 = GPIO 14, D6 = GPIO 12
+  #ifndef XBEE_RX_PIN
+    #define XBEE_RX_PIN 14   // D5
+  #endif
+  #ifndef XBEE_TX_PIN
+    #define XBEE_TX_PIN 12   // D6
+  #endif
+#endif
+
+// ========================================
+// Platform abstractions
+// ========================================
+#ifdef ARDUINO_ARCH_ESP32
+  WebServer server(WEB_SERVER_PORT);
+  #define xbeeSerial Serial2
+#elif defined(ARDUINO_ARCH_ESP8266)
+  ESP8266WebServer server(WEB_SERVER_PORT);
+  SoftwareSerial xbeeSerial(XBEE_RX_PIN, XBEE_TX_PIN);
 #endif
 
 // ========================================
 // Globals
 // ========================================
-WebServer server(WEB_SERVER_PORT);
-
-bool sdCardAvailable = false;
+bool storageAvailable = false;
 
 // Statistics
-int fogNodesCount   = 0;
-int activeFogNodes  = 0;
-int totalMessages   = 0;
+int fogNodesCount  = 0;
+int activeFogNodes = 0;
+int totalMessages  = 0;
 
-// Database file paths on SD card (same layout as admin)
+// Database file paths (same layout as admin)
 const char* FOG_NODES_FILE = "/hopfog/fog_nodes.json";
 const char* MESSAGES_FILE  = "/hopfog/messages.json";
 const char* STATS_FILE     = "/hopfog/stats.json";
@@ -83,10 +120,14 @@ unsigned long lastSync      = 0;
 String xbeeBuffer = "";
 
 // ========================================
-// SD Card helpers
+// Storage helpers (SD_MMC on ESP32-CAM,
+//                  LittleFS on ESP8266)
 // ========================================
-bool initSDCard() {
-    if (!SD_MMC.begin("/sdcard", true)) {   // 1-bit mode
+
+#ifdef ARDUINO_ARCH_ESP32
+// ---- ESP32-CAM: SD_MMC 1-bit mode ----
+bool initStorage() {
+    if (!SD_MMC.begin("/sdcard", true)) {
         Serial.println("[SD] Mount failed");
         return false;
     }
@@ -96,21 +137,19 @@ bool initSDCard() {
         return false;
     }
     Serial.printf("[SD] Card type: %s, Size: %llu MB\n",
-                  (cardType == CARD_MMC ? "MMC" :
-                   cardType == CARD_SD  ? "SD"  :
+                  (cardType == CARD_MMC  ? "MMC"  :
+                   cardType == CARD_SD   ? "SD"   :
                    cardType == CARD_SDHC ? "SDHC" : "UNKNOWN"),
                   SD_MMC.cardSize() / (1024 * 1024));
     return true;
 }
 
 void ensureDirectory(const char* path) {
-    if (!SD_MMC.exists(path)) {
-        SD_MMC.mkdir(path);
-    }
+    if (!SD_MMC.exists(path)) SD_MMC.mkdir(path);
 }
 
 String readFile(const char* path) {
-    if (!sdCardAvailable) return "[]";
+    if (!storageAvailable) return "[]";
     File f = SD_MMC.open(path, FILE_READ);
     if (!f) return "[]";
     String content = f.readString();
@@ -119,7 +158,7 @@ String readFile(const char* path) {
 }
 
 bool writeFile(const char* path, const String& data) {
-    if (!sdCardAvailable) return false;
+    if (!storageAvailable) return false;
     File f = SD_MMC.open(path, FILE_WRITE);
     if (!f) return false;
     f.print(data);
@@ -127,13 +166,75 @@ bool writeFile(const char* path, const String& data) {
     return true;
 }
 
+bool fileExists(const char* path) { return SD_MMC.exists(path); }
+
+void populateStorageStats(JsonDocument& doc) {
+    doc["storage_type"]    = "sd_card";
+    doc["sd_card_size_mb"] = (uint32_t)(SD_MMC.cardSize() / (1024 * 1024));
+    doc["sd_card_used_mb"] = (uint32_t)(SD_MMC.usedBytes() / (1024 * 1024));
+}
+
+#elif defined(ARDUINO_ARCH_ESP8266)
+// ---- ESP8266: LittleFS ----
+bool initStorage() {
+    if (!LittleFS.begin()) {
+        Serial.println("[FS] LittleFS mount failed");
+        return false;
+    }
+    FSInfo info;
+    LittleFS.info(info);
+    Serial.printf("[FS] LittleFS ready – %u KB used / %u KB total\n",
+                  (unsigned)(info.usedBytes / 1024),
+                  (unsigned)(info.totalBytes / 1024));
+    return true;
+}
+
+void ensureDirectory(const char* path) {
+    Dir d = LittleFS.openDir(path);
+    (void)d;  // LittleFS creates parent dirs on file write
+}
+
+String readFile(const char* path) {
+    if (!storageAvailable) return "[]";
+    File f = LittleFS.open(path, "r");
+    if (!f) return "[]";
+    String content = f.readString();
+    f.close();
+    return content.length() > 0 ? content : "[]";
+}
+
+bool writeFile(const char* path, const String& data) {
+    if (!storageAvailable) return false;
+    File f = LittleFS.open(path, "w");
+    if (!f) return false;
+    f.print(data);
+    f.close();
+    return true;
+}
+
+bool fileExists(const char* path) { return LittleFS.exists(path); }
+
+void populateStorageStats(JsonDocument& doc) {
+    FSInfo info;
+    LittleFS.info(info);
+    doc["storage_type"]     = "littlefs";
+    doc["fs_total_kb"]      = (uint32_t)(info.totalBytes / 1024);
+    doc["fs_used_kb"]       = (uint32_t)(info.usedBytes  / 1024);
+}
+#endif
+
+// ========================================
+// Database initialisation
+// ========================================
+void updateStats();  // forward declaration
+
 void initDatabase() {
     ensureDirectory("/hopfog");
-    if (!SD_MMC.exists(FOG_NODES_FILE)) writeFile(FOG_NODES_FILE, "[]");
-    if (!SD_MMC.exists(MESSAGES_FILE))  writeFile(MESSAGES_FILE,  "[]");
-    if (!SD_MMC.exists(STATS_FILE))     writeFile(STATS_FILE,     "{}");
+    if (!fileExists(FOG_NODES_FILE)) writeFile(FOG_NODES_FILE, "[]");
+    if (!fileExists(MESSAGES_FILE))  writeFile(MESSAGES_FILE,  "[]");
+    if (!fileExists(STATS_FILE))     writeFile(STATS_FILE,     "{}");
     updateStats();
-    Serial.println("[DB] Database initialised on SD card");
+    Serial.println("[DB] Database initialised");
 }
 
 // ========================================
@@ -195,7 +296,6 @@ bool addMessage(const String& from, const String& to, const String& message) {
 // Statistics
 // ========================================
 void updateStats() {
-    // Count fog nodes
     {
         String raw = readFile(FOG_NODES_FILE);
         DynamicJsonDocument doc(8192);
@@ -207,7 +307,6 @@ void updateStats() {
             }
         }
     }
-    // Count messages
     {
         String raw = readFile(MESSAGES_FILE);
         DynamicJsonDocument doc(16384);
@@ -218,7 +317,7 @@ void updateStats() {
 }
 
 void saveStats() {
-    if (!sdCardAvailable) return;
+    if (!storageAvailable) return;
     StaticJsonDocument<256> doc;
     doc["fog_nodes_count"]  = fogNodesCount;
     doc["active_fog_nodes"] = activeFogNodes;
@@ -231,14 +330,11 @@ void saveStats() {
 // ========================================
 // XBee helpers
 // ========================================
-
-// Send a JSON command to admin over XBee
 void xbeeSend(const String& json) {
-    Serial2.println(json);
+    xbeeSerial.println(json);
     Serial.printf("[XBEE-TX] %s\n", json.c_str());
 }
 
-// Build a request envelope
 void xbeeSendCommand(const char* cmd, JsonObject* params = nullptr) {
     StaticJsonDocument<512> doc;
     doc["cmd"]     = cmd;
@@ -252,37 +348,33 @@ void xbeeSendCommand(const char* cmd, JsonObject* params = nullptr) {
     xbeeSend(out);
 }
 
-// Register this node with the admin
 void xbeeRegister() {
     StaticJsonDocument<256> params;
     JsonObject p = params.to<JsonObject>();
-    p["ip_address"]    = WiFi.localIP().toString();
-    p["device_name"]   = NODE_ID;
-    p["status"]        = "active";
-    p["free_heap"]     = ESP.getFreeHeap();
-    p["sd_available"]  = sdCardAvailable;
+    p["ip_address"]       = WiFi.localIP().toString();
+    p["device_name"]      = NODE_ID;
+    p["status"]           = "active";
+    p["free_heap"]        = ESP.getFreeHeap();
+    p["storage_available"] = storageAvailable;
     xbeeSendCommand("REGISTER", &p);
 }
 
-// Send periodic heartbeat to admin
 void xbeeHeartbeat() {
     StaticJsonDocument<256> params;
     JsonObject p = params.to<JsonObject>();
-    p["ip_address"]   = WiFi.localIP().toString();
-    p["uptime"]       = millis() / 1000;
-    p["free_heap"]    = ESP.getFreeHeap();
-    p["fog_nodes"]    = fogNodesCount;
-    p["messages"]     = totalMessages;
-    p["sd_available"] = sdCardAvailable;
+    p["ip_address"]       = WiFi.localIP().toString();
+    p["uptime"]           = millis() / 1000;
+    p["free_heap"]        = ESP.getFreeHeap();
+    p["fog_nodes"]        = fogNodesCount;
+    p["messages"]         = totalMessages;
+    p["storage_available"] = storageAvailable;
     xbeeSendCommand("HEARTBEAT", &p);
 }
 
-// Request a full data sync from admin
 void xbeeRequestSync() {
     xbeeSendCommand("SYNC_REQUEST");
 }
 
-// Relay a message to admin (originated from a local client)
 void xbeeRelayMessage(const String& from, const String& to, const String& message) {
     StaticJsonDocument<512> params;
     JsonObject p = params.to<JsonObject>();
@@ -292,7 +384,6 @@ void xbeeRelayMessage(const String& from, const String& to, const String& messag
     xbeeSendCommand("RELAY_MSG", &p);
 }
 
-// Relay a fog-node registration to admin
 void xbeeRelayFogNode(const String& name, const String& ip, const String& status) {
     StaticJsonDocument<512> params;
     JsonObject p = params.to<JsonObject>();
@@ -327,7 +418,6 @@ void handleXBeeData(const String& line) {
         Serial.println("[XBEE] Registered with admin successfully");
     }
     else if (command == "SYNC_DATA") {
-        // Admin sends a full data dump
         if (doc.containsKey("fog_nodes")) {
             String nodesStr;
             serializeJson(doc["fog_nodes"], nodesStr);
@@ -343,7 +433,6 @@ void handleXBeeData(const String& line) {
         Serial.println("[XBEE] Data sync complete");
     }
     else if (command == "BROADCAST_MSG") {
-        // Admin broadcasts a message to all nodes
         const char* from    = doc["params"]["from"];
         const char* to      = doc["params"]["to"];
         const char* message = doc["params"]["message"];
@@ -353,7 +442,6 @@ void handleXBeeData(const String& line) {
         }
     }
     else if (command == "ADD_FOG_NODE") {
-        // Admin pushes a new fog node record
         const char* name   = doc["params"]["device_name"];
         const char* ip     = doc["params"]["ip_address"];
         const char* status = doc["params"]["status"];
@@ -363,7 +451,6 @@ void handleXBeeData(const String& line) {
         }
     }
     else if (command == "GET_STATS") {
-        // Admin requests this node's stats
         StaticJsonDocument<512> resp;
         resp["cmd"]              = "STATS_RESPONSE";
         resp["node_id"]          = NODE_ID;
@@ -373,7 +460,7 @@ void handleXBeeData(const String& line) {
         resp["free_heap"]        = ESP.getFreeHeap();
         resp["uptime"]           = millis() / 1000;
         resp["ip_address"]       = WiFi.localIP().toString();
-        resp["sd_available"]     = sdCardAvailable;
+        resp["storage_available"] = storageAvailable;
         String out;
         serializeJson(resp, out);
         xbeeSend(out);
@@ -386,7 +473,6 @@ void handleXBeeData(const String& line) {
 // ========================================
 // HTTP API handlers (headless – no HTML)
 // ========================================
-
 void handleHealth() {
     StaticJsonDocument<256> doc;
     doc["status"]  = "ok";
@@ -399,17 +485,16 @@ void handleHealth() {
 
 void handleStats() {
     StaticJsonDocument<512> doc;
-    doc["node_id"]          = NODE_ID;
-    doc["fog_nodes_count"]  = fogNodesCount;
-    doc["active_fog_nodes"] = activeFogNodes;
-    doc["total_messages"]   = totalMessages;
-    doc["ip_address"]       = WiFi.localIP().toString();
-    doc["free_heap"]        = ESP.getFreeHeap();
-    doc["uptime"]           = millis() / 1000;
-    doc["sd_card_available"] = sdCardAvailable;
-    if (sdCardAvailable) {
-        doc["sd_card_size_mb"] = (uint32_t)(SD_MMC.cardSize() / (1024 * 1024));
-        doc["sd_card_used_mb"] = (uint32_t)(SD_MMC.usedBytes() / (1024 * 1024));
+    doc["node_id"]           = NODE_ID;
+    doc["fog_nodes_count"]   = fogNodesCount;
+    doc["active_fog_nodes"]  = activeFogNodes;
+    doc["total_messages"]    = totalMessages;
+    doc["ip_address"]        = WiFi.localIP().toString();
+    doc["free_heap"]         = ESP.getFreeHeap();
+    doc["uptime"]            = millis() / 1000;
+    doc["storage_available"] = storageAvailable;
+    if (storageAvailable) {
+        populateStorageStats(doc);
     }
     String out;
     serializeJson(doc, out);
@@ -435,7 +520,6 @@ void handleAddFogNode() {
     }
     String st = status.length() > 0 ? status : "active";
     if (addFogNode(name, ip, st)) {
-        // Also relay to admin
         xbeeRelayFogNode(name, ip, st);
         server.send(200, "application/json",
                     "{\"success\":true,\"message\":\"Fog node added and relayed to admin\"}");
@@ -463,7 +547,6 @@ void handleAddMessage() {
         return;
     }
     if (addMessage(from, to, message)) {
-        // Also relay to admin
         xbeeRelayMessage(from, to, message);
         server.send(200, "application/json",
                     "{\"success\":true,\"message\":\"Message stored and relayed to admin\"}");
@@ -474,7 +557,6 @@ void handleAddMessage() {
 }
 
 void handleRelay() {
-    // Explicit relay endpoint – forwards arbitrary JSON to admin via XBee
     if (server.method() != HTTP_POST) {
         server.send(405, "application/json", "{\"error\":\"Method Not Allowed\"}");
         return;
@@ -499,20 +581,25 @@ void handleNotFound() {
 // ========================================
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\nHopFog Node - Range Extender");
+    Serial.println("\n\nHopFog Node – Range Extender");
     Serial.println("============================");
 
-    // XBee on Serial2
-    Serial2.begin(XBEE_BAUD, SERIAL_8N1, XBEE_RX_PIN, XBEE_TX_PIN);
-    Serial.printf("[XBEE] UART2 started at %d baud (RX=%d, TX=%d)\n",
+#ifdef ARDUINO_ARCH_ESP32
+    Serial.println("[BOARD] ESP32-CAM (AI-Thinker)");
+    xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, XBEE_RX_PIN, XBEE_TX_PIN);
+#elif defined(ARDUINO_ARCH_ESP8266)
+    Serial.println("[BOARD] Wemos D1 Mini (ESP8266)");
+    xbeeSerial.begin(XBEE_BAUD);
+#endif
+    Serial.printf("[XBEE] Started at %d baud (RX=%d, TX=%d)\n",
                   XBEE_BAUD, XBEE_RX_PIN, XBEE_TX_PIN);
 
-    // SD card
-    sdCardAvailable = initSDCard();
-    if (sdCardAvailable) {
+    // Storage
+    storageAvailable = initStorage();
+    if (storageAvailable) {
         initDatabase();
     } else {
-        Serial.println("[SD] Running without persistent storage");
+        Serial.println("[STORAGE] Running without persistent storage");
     }
 
     // WiFi
@@ -525,19 +612,20 @@ void setup() {
         attempts++;
     }
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\n[WIFI] Connected – IP: %s\n", WiFi.localIP().toString().c_str());
+        Serial.printf("\n[WIFI] Connected – IP: %s\n",
+                      WiFi.localIP().toString().c_str());
     } else {
-        Serial.println("\n[WIFI] Connection failed – will keep trying in background");
+        Serial.println("\n[WIFI] Connection failed – will keep trying");
     }
 
     // API routes (headless – JSON only)
-    server.on("/api/health",        HTTP_GET,  handleHealth);
-    server.on("/api/stats",         HTTP_GET,  handleStats);
-    server.on("/api/fognodes",      HTTP_GET,  handleGetFogNodes);
-    server.on("/api/fognodes/add",  HTTP_POST, handleAddFogNode);
-    server.on("/api/messages",      HTTP_GET,  handleGetMessages);
-    server.on("/api/messages/add",  HTTP_POST, handleAddMessage);
-    server.on("/api/relay",         HTTP_POST, handleRelay);
+    server.on("/api/health",       HTTP_GET,  handleHealth);
+    server.on("/api/stats",        HTTP_GET,  handleStats);
+    server.on("/api/fognodes",     HTTP_GET,  handleGetFogNodes);
+    server.on("/api/fognodes/add", HTTP_POST, handleAddFogNode);
+    server.on("/api/messages",     HTTP_GET,  handleGetMessages);
+    server.on("/api/messages/add", HTTP_POST, handleAddMessage);
+    server.on("/api/relay",        HTTP_POST, handleRelay);
     server.onNotFound(handleNotFound);
     server.begin();
     Serial.println("[HTTP] API server started");
@@ -557,8 +645,8 @@ void loop() {
     server.handleClient();
 
     // ---- XBee receive ----
-    while (Serial2.available()) {
-        char c = Serial2.read();
+    while (xbeeSerial.available()) {
+        char c = xbeeSerial.read();
         if (c == '\n') {
             xbeeBuffer.trim();
             if (xbeeBuffer.length() > 0) {
@@ -578,7 +666,6 @@ void loop() {
         if (WiFi.status() == WL_CONNECTED) {
             xbeeHeartbeat();
         } else {
-            // Try reconnecting
             WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
         }
     }

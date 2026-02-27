@@ -1,6 +1,13 @@
-# HopFog Node – ESP32-CAM Range Extender
+# HopFog Node – Range Extender
 
-A headless ESP32-CAM node that connects to the [HopFog-Web](https://github.com/hyoono/HopFog-Web) admin system via XBee radio and extends its range by replicating API services locally.
+A headless node that connects to the [HopFog-Web](https://github.com/hyoono/HopFog-Web) admin system via XBee radio and extends its range by replicating API services locally.
+
+## Supported Boards
+
+| Board | XBee Serial | Storage | Build env |
+|-------|------------|---------|-----------|
+| **ESP32-CAM** (AI-Thinker) | Hardware UART2 (GPIO 13 RX / GPIO 12 TX) | SD card (SD_MMC 1-bit) | `esp32cam` |
+| **Wemos D1 Mini** (ESP8266) | SoftwareSerial (D5 RX / D6 TX) | LittleFS (on-chip flash) | `d1_mini` |
 
 ## Overview
 
@@ -8,12 +15,14 @@ The HopFog Node acts as a **router / range extender** for the HopFog network:
 
 - Communicates with the admin ESP32-CAM over **XBee** (Serial)
 - Exposes the same **REST API endpoints** so nearby clients can talk to the node instead of the admin
-- Stores data locally on an **SD card** (same JSON format as the admin)
+- Stores data locally (**SD card** on ESP32-CAM, **LittleFS** on D1 Mini)
 - **No web interface** – purely headless JSON API
 - Auto-registers with the admin and sends periodic heartbeats
 - Relays messages and fog-node registrations back to the admin
 
 ## Hardware Requirements
+
+### ESP32-CAM variant
 
 | Component | Notes |
 |-----------|-------|
@@ -22,17 +31,36 @@ The HopFog Node acts as a **router / range extender** for the HopFog network:
 | MicroSD card (4-32 GB, FAT32) | Persistent local storage |
 | FTDI / USB-to-TTL programmer | For uploading firmware |
 | 5 V power supply (≥ 500 mA) | USB or external |
-| Logic-level shifter (3.3 V) | If XBee is 3.3 V only |
 
-## Quick Start
+### Wemos D1 Mini variant (alternative)
 
-1. **Install Arduino IDE** and ESP32 board support ([guide](https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html)).
-2. Install the **ArduinoJson** library (v6.x) via *Tools → Manage Libraries*.
-3. Copy `esp32_node/config.h.example` to `esp32_node/config.h` and fill in your WiFi credentials, node ID, and XBee pins.
-4. Open `esp32_node/esp32_node.ino` in Arduino IDE.
-5. Select board **AI Thinker ESP32-CAM** and the correct serial port.
-6. Connect IO0 → GND, upload, then disconnect IO0 and press RESET.
-7. Open Serial Monitor at 115200 baud to see the node boot.
+| Component | Notes |
+|-----------|-------|
+| Wemos D1 Mini (ESP8266) | Compact, USB-powered dev board |
+| XBee module (e.g. XBee S2C / XBee3) | For long-range serial link to admin |
+| 3.3 V logic-level shifter | If XBee is 3.3 V only (D1 GPIOs are 3.3 V) |
+
+No SD card needed – data is stored in on-chip LittleFS flash.
+
+## Quick Start (PlatformIO)
+
+1. Install [PlatformIO](https://platformio.org/install) (VS Code extension or CLI).
+2. Copy `include/config.h.example` → `include/config.h` and fill in your WiFi credentials, node ID, etc.
+3. Build and upload:
+
+```bash
+# ESP32-CAM
+pio run -e esp32cam -t upload
+
+# Wemos D1 Mini
+pio run -e d1_mini -t upload
+```
+
+4. Open Serial Monitor at 115200 baud:
+
+```bash
+pio device monitor
+```
 
 ## API Endpoints
 
@@ -84,13 +112,15 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 ## Project Structure
 
 ```
-├── esp32_node/
-│   ├── esp32_node.ino      # Main firmware
-│   ├── config.h.example    # Configuration template
-│   └── test_api.py         # Python API test script
-├── ARCHITECTURE.md          # System architecture document
-├── WIRING_GUIDE.md          # ESP32-CAM + XBee wiring details
-├── Readme.md                # This file
+├── platformio.ini            # PlatformIO build configuration
+├── src/
+│   └── main.cpp              # Firmware (both boards via #ifdef)
+├── include/
+│   └── config.h.example      # Configuration template
+├── test_api.py               # Python API test script
+├── ARCHITECTURE.md            # System architecture document
+├── WIRING_GUIDE.md            # Hardware wiring details
+├── Readme.md                  # This file
 └── .gitignore
 ```
 
@@ -99,7 +129,6 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 After flashing the node and confirming WiFi connection via Serial Monitor:
 
 ```bash
-cd esp32_node
 python test_api.py <node-ip>
 ```
 
@@ -109,7 +138,7 @@ python test_api.py <node-ip>
 |---------|-------------------|-------------------|
 | Web dashboard | ✅ HTML UI | ❌ Headless JSON API only |
 | Authentication | ✅ Login / token | ❌ Open API |
-| Database | JSON on SD card | JSON on SD card (same format) |
+| Database | JSON on SD card | JSON on SD card or LittleFS |
 | XBee role | Coordinator | Router / end-device |
 | Message flow | Originates broadcasts | Relays to/from admin |
 

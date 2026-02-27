@@ -1,56 +1,60 @@
-# Wiring Guide – ESP32-CAM + XBee (HopFog Node)
+# Wiring Guide – HopFog Node
+
+This guide covers wiring for both supported boards:
+- **ESP32-CAM** (AI-Thinker)
+- **Wemos D1 Mini** (ESP8266)
 
 ## Components
 
-1. **ESP32-CAM** (AI-Thinker) – camera not used
+1. **ESP32-CAM** or **Wemos D1 Mini** (pick one)
 2. **XBee module** (e.g. XBee S2C, XBee3)
 3. **XBee breakout / adapter board** (provides 2.54 mm headers and 3.3 V regulation)
-4. **MicroSD card** (4-32 GB, FAT32, Class 10)
-5. **FTDI / USB-to-TTL programmer** (for uploading firmware)
+4. **MicroSD card** (4-32 GB, FAT32, Class 10) – ESP32-CAM only
+5. **FTDI / USB-to-TTL programmer** – ESP32-CAM only (D1 Mini has built-in USB)
 6. **5 V power supply** (≥ 500 mA)
 7. **Jumper wires** (female-to-female)
-8. **3.3 V logic-level shifter** (optional – see note below)
 
 ---
 
-## 1. ESP32-CAM ↔ XBee Wiring (Operation)
+## 1. ESP32-CAM ↔ XBee Wiring
 
-The node uses **Serial2** (UART2) for XBee communication.
+The node uses **Serial2** (UART2) re-mapped to GPIO 13 / GPIO 12.
+
+> **Why not GPIO 32 / 33?** On the AI-Thinker ESP32-CAM, GPIO 32 is
+> the camera PWDN pin and GPIO 33 drives the on-board red LED. Neither
+> is freely available for general-purpose serial I/O. GPIO 13 and
+> GPIO 12 are free when the SD card runs in 1-bit mode.
 
 ```
 ESP32-CAM               XBee Module
 =========               ===========
-GPIO 32  (RX) ◄──────── DOUT (TX)
-GPIO 33  (TX) ────────► DIN  (RX)
+GPIO 13  (RX) ◄──────── DOUT (TX)
+GPIO 12  (TX) ────────► DIN  (RX)
 GND           ────────── GND
 3.3V          ────────── VCC (3.3V)
 ```
 
 | ESP32-CAM Pin | Direction | XBee Pin | Notes |
 |---------------|-----------|----------|-------|
-| GPIO 32 | Input | DOUT (TX) | ESP32 receives data from XBee |
-| GPIO 33 | Output | DIN (RX) | ESP32 sends data to XBee |
+| GPIO 13 | Input | DOUT (TX) | ESP32 receives data from XBee |
+| GPIO 12 | Output | DIN (RX) | ESP32 sends data to XBee |
 | GND | — | GND | Common ground |
 | 3.3V | — | VCC | XBee requires 3.3 V (NOT 5 V) |
 
-### Logic-Level Note
+### GPIO 12 Strapping Note
 
-Both the ESP32 GPIO and XBee operate at **3.3 V** logic, so a level
-shifter is usually not needed. If your XBee breakout board already has
-an on-board 3.3 V regulator and you are powering it from 5 V, just
-connect the signal lines directly.
+GPIO 12 is a strapping pin that selects flash voltage at boot. Keep
+it **LOW during power-on** (which is the idle state of a UART TX line,
+so this is normally fine). If you experience boot failures, disconnect
+the XBee during programming and reconnect afterwards.
 
-### GPIO 33 and the Red LED
+### SD Card
 
-GPIO 33 drives the built-in red LED on the AI-Thinker ESP32-CAM.
-When the node transmits data to the XBee the LED will briefly flicker,
-providing a useful visual indicator of outgoing traffic.
+Insert a **FAT32-formatted** microSD card into the slot on the back of
+the ESP32-CAM. The firmware creates the `/hopfog/` directory
+automatically on first boot.
 
----
-
-## 2. ESP32-CAM ↔ FTDI Wiring (Programming)
-
-This is the same wiring as the admin (HopFog-Web) guide:
+### ESP32-CAM ↔ FTDI Wiring (Programming)
 
 ```
 ESP32-CAM          FTDI Programmer
@@ -66,37 +70,53 @@ After uploading, **disconnect IO0 from GND** and press RESET.
 
 ---
 
-## 3. Full Wiring (Programming + XBee)
+## 2. Wemos D1 Mini ↔ XBee Wiring
 
-During development you may want both the FTDI (for serial monitor) and
-the XBee connected at the same time:
+The D1 Mini only has one hardware UART (used for USB serial), so XBee
+communication uses **SoftwareSerial** on pins D5 and D6.
 
 ```
-                   ┌─────────────────────┐
-                   │   ESP32-CAM         │
-                   │   (AI-Thinker)      │
-       GND ──── 1 │ o                 o │ 36  GPIO 32 ──── XBee DOUT
-      3.3V ──── 2 │ o                 o │ 35  GND
-     GPIO4 ──── 3 │ o                 o │ 34  5V
-  FTDI TX ──── 4 │ o  U0R             o │ 33  GPIO 33 ──── XBee DIN
-  FTDI RX ──── 5 │ o  U0T             o │ 32  GPIO 1
-       GND ──── 6 │ o                 o │ 31  GPIO 3
-    5V (FTDI) ─ 7 │ o                 o │ 30  GND ──── XBee GND
-                   └─────────────────────┘
-                                3.3V (pin 2) ──── XBee VCC
+D1 Mini                  XBee Module
+=======                  ===========
+D5 / GPIO 14  (RX) ◄──── DOUT (TX)
+D6 / GPIO 12  (TX) ─────► DIN  (RX)
+GND            ────────── GND
+3.3V           ────────── VCC (3.3V)
 ```
+
+| D1 Mini Pin | GPIO | Direction | XBee Pin | Notes |
+|-------------|------|-----------|----------|-------|
+| D5 | 14 | Input | DOUT (TX) | D1 receives data from XBee |
+| D6 | 12 | Output | DIN (RX) | D1 sends data to XBee |
+| GND | — | — | GND | Common ground |
+| 3.3V | — | — | VCC | XBee requires 3.3 V |
+
+### D1 Mini Pinout Quick Reference
+
+```
+        ┌──── USB ────┐
+    RST │ o          o │ TX  (GPIO 1)
+     A0 │ o          o │ RX  (GPIO 3)
+  D0/16 │ o          o │ D1  (GPIO 5)
+  D5/14 │ o  ◄── RX  o │ D2  (GPIO 4)
+  D6/12 │ o  ──► TX  o │ D3  (GPIO 0)
+  D7/13 │ o          o │ D4  (GPIO 2) LED
+  D8/15 │ o          o │ GND
+   3.3V │ o          o │ 5V
+        └─────────────┘
+```
+
+### Storage
+
+No SD card needed. Data is stored in **LittleFS** (on-chip flash).
+
+### Programming
+
+Just plug in the USB cable and run `pio run -e d1_mini -t upload`.
 
 ---
 
-## 4. SD Card
-
-Insert a **FAT32-formatted** microSD card into the slot on the back of
-the ESP32-CAM. The firmware creates the `/hopfog/` directory and JSON
-database files automatically on first boot.
-
----
-
-## 5. XBee Configuration
+## 3. XBee Configuration
 
 Use **XCTU** (Digi's configuration tool) to set up the XBee modules:
 
@@ -121,35 +141,37 @@ Both modules must be on the **same PAN ID** and use the same baud rate.
 
 ---
 
-## 6. Power
+## 4. Power
 
 | Source | Notes |
 |--------|-------|
-| FTDI programmer | Convenient during development (powers ESP32-CAM via 5 V pin) |
-| USB 5 V adapter | For standalone operation; connect 5 V and GND |
+| USB cable | Easiest for D1 Mini; also works for ESP32-CAM via FTDI |
+| USB 5 V adapter | For standalone operation |
 | Battery pack | 5 V regulated output, ≥ 500 mA |
 
-The XBee draws ~50 mA when transmitting. Power it from the ESP32-CAM's
+The XBee draws ~50 mA when transmitting. Power it from the board's
 3.3 V pin or from a separate regulated 3.3 V supply.
 
 ---
 
-## 7. Troubleshooting
+## 5. Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| Upload fails | Ensure IO0 → GND; press RESET when "Connecting…" appears |
+| Upload fails (ESP32-CAM) | Ensure IO0 → GND; press RESET when "Connecting…" appears |
+| Upload fails (D1 Mini) | Check USB cable is data-capable (not charge-only) |
 | No serial output | Set baud to 115200; press RESET |
 | XBee no communication | Check PAN ID matches; verify TX/RX are crossed correctly |
-| SD card not detected | Re-format as FAT32; try a different card; check board selection is AI-Thinker |
+| SD card not detected (ESP32-CAM) | Re-format as FAT32; try a different card |
+| Boot loop on ESP32-CAM | GPIO 12 pulled HIGH at boot – disconnect XBee, flash, reconnect |
 | Node doesn't register | Check admin XBee is powered and in coordinator mode |
-| Red LED always on | Normal idle state of GPIO 33; flickers during XBee TX |
 
 ---
 
-## 8. Safety
+## 6. Safety
 
 - Power the ESP32-CAM at **5 V** (not 3.3 V) for stable operation.
 - Power the XBee at **3.3 V** (not 5 V) – higher voltage will damage it.
+- The Wemos D1 Mini can be powered via USB (5 V) or the 5 V pin.
 - Verify polarity before connecting.
 - Handle boards by their edges to avoid ESD damage.

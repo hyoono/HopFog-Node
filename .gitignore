@@ -8,7 +8,7 @@ build/
 *.hex
 
 # Configuration with secrets
-esp32_node/config.h
+include/config.h
 
 # IDE files
 .vscode/

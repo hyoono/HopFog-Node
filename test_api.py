@@ -3,7 +3,7 @@
 HopFog Node API Test Script
 
 Tests the REST API endpoints exposed by the HopFog Node firmware.
-Run this from a machine on the same WiFi network as the ESP32-CAM node.
+Run this from a machine on the same WiFi network as the node.
 
 Usage:
     python test_api.py [<node_ip>]
@@ -155,7 +155,7 @@ def main():
         print("✓ Node is reachable")
     except Exception as e:
         print(f"✗ Cannot reach node: {e}")
-        print("  1. Is the ESP32-CAM powered on and connected to WiFi?")
+        print("  1. Is the node powered on and connected to WiFi?")
         print("  2. Is this machine on the same network?")
         print(f"  3. Is the IP correct? (currently {ESP32_IP})")
         sys.exit(1)

@@ -1,10 +1,13 @@
 /*
- * Configuration Template for HopFog Node (ESP32-CAM)
+ * Configuration Template for HopFog Node
  *
  * INSTRUCTIONS:
- * 1. Copy this file to config.h
+ * 1. Copy this file to config.h  (in the same include/ directory)
  * 2. Edit config.h with your actual values
  * 3. config.h is listed in .gitignore so it will not be committed
+ *
+ * Pin defaults differ per board and are set in main.cpp.
+ * Override them here only if you wire things differently.
  */
 
 // WiFi Configuration
@@ -14,10 +17,16 @@
 // Node identity – each node must have a unique ID
 #define NODE_ID "node-01"
 
-// XBee serial configuration
-#define XBEE_BAUD   9600
-#define XBEE_RX_PIN 32   // ESP32 GPIO that receives data FROM XBee TX
-#define XBEE_TX_PIN 33   // ESP32 GPIO that sends data TO XBee RX
+// XBee serial baud rate
+#define XBEE_BAUD 9600
+
+// ── ESP32-CAM pin overrides (defaults: RX=13, TX=12) ───────────
+// #define XBEE_RX_PIN 13
+// #define XBEE_TX_PIN 12
+
+// ── Wemos D1 Mini pin overrides (defaults: RX=D5/14, TX=D6/12) ─
+// #define XBEE_RX_PIN 14
+// #define XBEE_TX_PIN 12
 
 // Web server port (default 80)
 // #define WEB_SERVER_PORT 80
