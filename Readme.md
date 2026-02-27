@@ -74,10 +74,12 @@ PC's Wi-Fi hotspot, and run:
 cd pc_node
 pip install -r requirements.txt
 copy config.example.json config.json   # edit with your COM port
-python hopfog_node.py
+python hopfog_node.py --http-port 80   # port 80 for mobile app compat
 ```
 
-See [`pc_node/README.md`](pc_node/README.md) for full details.
+See [`pc_node/README.md`](pc_node/README.md) for a quick reference and
+[`PC_SETUP_GUIDE.md`](PC_SETUP_GUIDE.md) for a full step-by-step
+deployment walkthrough (hotspot, DNS, user seeding, background service).
 
 ## API Endpoints
 
@@ -136,6 +138,9 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 | `SYNC_REQUEST` | Ask admin for a full data dump |
 | `RELAY_MSG` | Forward a user message |
 | `RELAY_FOG_NODE` | Forward a fog-node registration |
+| `RELAY_CHAT_MSG` | Forward a mobile chat message |
+| `SOS_ALERT` | Notify admin of an SOS request |
+| `CHANGE_PASSWORD` | Relay a password change request |
 | `STATS_RESPONSE` | Reply to admin's `GET_STATS` |
 
 ### Admin → Node
@@ -144,7 +149,7 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 |---------|-------------|
 | `REGISTER_ACK` | Acknowledge registration |
 | `PONG` | Heartbeat response |
-| `SYNC_DATA` | Full data payload (fog nodes + messages) |
+| `SYNC_DATA` | Full data payload (fog nodes, messages, users, conversations, announcements) |
 | `BROADCAST_MSG` | Push a message to this node |
 | `ADD_FOG_NODE` | Push a fog-node record |
 | `GET_STATS` | Request this node's stats |
@@ -161,9 +166,10 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 │   ├── hopfog_node.py         # Python node (Flask + pyserial)
 │   ├── requirements.txt       # Python dependencies
 │   ├── config.example.json    # Configuration template
-│   └── README.md              # PC-specific setup guide
-├── test_api.py               # Python API test script
+│   └── README.md              # PC-specific quick reference
+├── test_api.py               # Python API test script (15 tests)
 ├── ARCHITECTURE.md            # System architecture document
+├── PC_SETUP_GUIDE.md          # Step-by-step PC deployment guide
 ├── WIRING_GUIDE.md            # Hardware wiring details
 ├── Readme.md                  # This file
 └── .gitignore
@@ -194,5 +200,7 @@ Same as the original HopFog-Web project.
 ## See Also
 
 - [HopFog-Web](https://github.com/hyoono/HopFog-Web) – Admin side
+- [HopFogMobile](https://github.com/MasterRoxy/HopFogMobile) – Mobile app
 - [ARCHITECTURE.md](ARCHITECTURE.md) – Detailed architecture
+- [PC_SETUP_GUIDE.md](PC_SETUP_GUIDE.md) – PC deployment walkthrough
 - [WIRING_GUIDE.md](WIRING_GUIDE.md) – Hardware wiring

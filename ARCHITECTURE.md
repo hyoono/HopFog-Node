@@ -28,6 +28,12 @@ The **Node** extends the admin's coverage area. Any client within WiFi
 range of the node can use the same REST API calls. The node stores data
 locally and relays changes back to the admin via XBee.
 
+On embedded hardware (ESP32 / ESP8266) the node creates its own WiFi
+Access Point and runs a DNS server that resolves `hopfog.com` to the
+node's IP, so the [HopFogMobile](https://github.com/MasterRoxy/HopFogMobile)
+app works without any URL changes. On PC, see
+[PC_SETUP_GUIDE.md](PC_SETUP_GUIDE.md) for DNS setup.
+
 ---
 
 ## Platform Variants
@@ -109,6 +115,11 @@ locally and relays changes back to the admin via XBee.
 │  │  /api/health · /api/stats                   │   │
 │  │  /api/fog-devices · /api/messages           │   │
 │  │  /api/xbee/broadcast                        │   │
+│  │                                              │   │
+│  │  Mobile app API (same as hopfog.com)         │   │
+│  │  /login · /status · /conversations          │   │
+│  │  /messages · /send · /users · /sos          │   │
+│  │  /create-chat · /announcements  …           │   │
 │  └─────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
                         │
@@ -165,13 +176,15 @@ All XBee traffic is newline-delimited JSON:
 
 | Direction | Commands |
 |-----------|----------|
-| Node → Admin | `REGISTER`, `HEARTBEAT`, `SYNC_REQUEST`, `RELAY_MSG`, `RELAY_FOG_NODE`, `STATS_RESPONSE` |
+| Node → Admin | `REGISTER`, `HEARTBEAT`, `SYNC_REQUEST`, `RELAY_MSG`, `RELAY_FOG_NODE`, `RELAY_CHAT_MSG`, `SOS_ALERT`, `CHANGE_PASSWORD`, `STATS_RESPONSE` |
 | Admin → Node | `REGISTER_ACK`, `PONG`, `SYNC_DATA`, `BROADCAST_MSG`, `ADD_FOG_NODE`, `GET_STATS` |
 
 ### 5. API Endpoint Map
 
 Paths match the HopFog-Web admin so that clients can use either
 system with the same URLs.
+
+#### Admin / Device Management
 
 ```
 /api/
@@ -184,15 +197,37 @@ system with the same URLs.
 └── POST /api/xbee/broadcast        → Forward raw JSON to admin via XBee
 ```
 
+#### Mobile App (same paths as hopfog.com)
+
+```
+/
+├── POST /login              → Authenticate mobile user
+├── GET  /status             → {"online": true}
+├── GET  /conversations      → List conversations for a user
+├── GET  /messages           → Get messages for a conversation
+├── POST /send               → Send a chat message + relay via XBee
+├── GET  /users              → List available users
+├── POST /create-chat        → Find or create a 1-on-1 chat
+├── POST /sos                → Create an SOS chat with admin
+├── GET  /new-messages       → Poll for messages since last_id
+├── POST /agree-sos          → Mark SOS agreement
+├── POST /change-password    → Relay password change to admin
+└── GET  /announcements      → List announcements
+```
+
 ### 6. Storage Database
 
 Same schema as admin for compatibility:
 
 ```
 /hopfog/
-├── fog_nodes.json   # [{id, device_name, ip_address, status, added_at}, ...]
-├── messages.json    # [{id, from, to, message, timestamp, node}, ...]
-└── stats.json       # {fog_nodes_count, active_fog_nodes, total_messages}
+├── fog_nodes.json       # [{id, device_name, ip_address, status, added_at}, ...]
+├── messages.json        # [{id, from, to, message, timestamp, node}, ...]
+├── stats.json           # {fog_nodes_count, active_fog_nodes, total_messages}
+├── users.json           # [{id, username, email, role, is_active, has_agreed_sos}, ...]
+├── conversations.json   # [{id, participants, name, last_message, last_timestamp}, ...]
+├── chat_messages.json   # [{id, conversation_id, sender_id, message_text, sent_at}, ...]
+└── announcements.json   # [{id, title, message, created_at}, ...]
 ```
 
 ### 7. Timing

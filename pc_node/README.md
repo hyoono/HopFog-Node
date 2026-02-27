@@ -5,8 +5,12 @@ script on Windows (or macOS / Linux). It exposes the same REST API
 and speaks the same XBee protocol, but uses a USB-connected XBee
 instead of GPIO serial and local JSON files instead of SD / LittleFS.
 
-> **This is a proof-of-concept** for testing the HopFog architecture
-> before embedded hardware arrives.
+The mobile app ([HopFogMobile](https://github.com/MasterRoxy/HopFogMobile))
+works with this node **without any URL changes** — just point DNS for
+`hopfog.com` at the PC's hotspot IP.
+
+> **For a full step-by-step deployment walkthrough, see
+> [`PC_SETUP_GUIDE.md`](../PC_SETUP_GUIDE.md).**
 
 ## How It Works
 
@@ -87,7 +91,9 @@ On macOS / Linux the port is usually `/dev/ttyUSB0` or
 
 ## API Endpoints
 
-Same as the embedded firmware and HopFog-Web admin:
+Same as the embedded firmware and hopfog.com:
+
+### Admin / Device Management
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -99,12 +105,30 @@ Same as the embedded firmware and HopFog-Web admin:
 | POST | `/api/messages` | Send message (relayed to admin) |
 | POST | `/api/xbee/broadcast` | Forward raw JSON to admin via XBee |
 
+### Mobile App (same paths as hopfog.com)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/login` | Authenticate a mobile user |
+| GET | `/status` | Server online check |
+| GET | `/conversations` | List conversations for a user |
+| GET | `/messages` | Get messages for a conversation |
+| POST | `/send` | Send a chat message |
+| GET | `/users` | List available users |
+| POST | `/create-chat` | Find or create a 1-on-1 chat |
+| POST | `/sos` | Create an SOS chat with admin |
+| GET | `/new-messages` | Poll for new messages |
+| POST | `/agree-sos` | Mark SOS agreement |
+| POST | `/change-password` | Change password (relayed to admin) |
+| GET | `/announcements` | Get announcements |
+
 ### Example
 
 ```bash
 curl http://localhost:8080/api/health
-curl -X POST http://localhost:8080/api/messages \
-     -d "from=alice&to=bob&message=Hello+from+PC"
+curl -X POST http://localhost:8080/send \
+     -H "Content-Type: application/json" \
+     -d '{"conversation_id":1,"sender_id":2,"message_text":"Hello!"}'
 ```
 
 ## Running Without XBee
@@ -119,9 +143,13 @@ JSON files are stored in a local `hopfog_data/` directory (configurable):
 
 ```
 hopfog_data/
-├── fog_nodes.json
-├── messages.json
-└── stats.json
+├── fog_nodes.json       # Fog device registry
+├── messages.json        # Admin relay messages
+├── stats.json           # Node statistics
+├── users.json           # Mobile user accounts (synced from admin)
+├── conversations.json   # Chat conversations
+├── chat_messages.json   # Chat message history
+└── announcements.json   # Admin announcements
 ```
 
 ## Testing
