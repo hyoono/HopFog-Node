@@ -59,11 +59,6 @@
 #endif
 
 // ========================================
-// Pin / hardware constants
-// ========================================
-#define STATUS_LED 33          // built-in red LED (shared with XBEE_TX)
-
-// ========================================
 // Globals
 // ========================================
 WebServer server(WEB_SERVER_PORT);

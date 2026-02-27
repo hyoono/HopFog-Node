@@ -133,7 +133,7 @@ def test_relay():
         r = requests.post(
             f"{BASE_URL}/api/relay",
             data=payload,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={"Content-Type": "application/json"},
             timeout=5,
         )
         print(f"Status: {r.status_code}")
