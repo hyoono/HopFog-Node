@@ -25,11 +25,13 @@
   #include <WiFi.h>
   #include <WebServer.h>
   #include <SD_MMC.h>
+  #include <DNSServer.h>
 #elif defined(ARDUINO_ARCH_ESP8266)
   #include <ESP8266WiFi.h>
   #include <ESP8266WebServer.h>
   #include <LittleFS.h>
   #include <SoftwareSerial.h>
+  #include <DNSServer.h>
 #endif
 
 #include <ArduinoJson.h>
@@ -63,6 +65,20 @@
 #endif
 #ifndef SYNC_INTERVAL_MS
   #define SYNC_INTERVAL_MS 60000
+#endif
+
+// ── WiFi Access Point defaults ──────────────────────────────────
+#ifndef AP_SSID
+  #define AP_SSID "HopFog-Network"
+#endif
+#ifndef AP_PASSWORD
+  #define AP_PASSWORD "hopfog123"
+#endif
+#ifndef AP_CHANNEL
+  #define AP_CHANNEL 6
+#endif
+#ifndef DNS_DOMAIN
+  #define DNS_DOMAIN "hopfog.com"
 #endif
 
 // ── Board-specific pin defaults ─────────────────────────────────
@@ -102,15 +118,24 @@
 // ========================================
 bool storageAvailable = false;
 
+// DNS server for captive portal (resolves hopfog.com → node IP)
+DNSServer dnsServer;
+
 // Statistics
 int fogNodesCount  = 0;
 int activeFogNodes = 0;
 int totalMessages  = 0;
 
-// Database file paths (same layout as admin)
+// Database file paths (admin device management)
 const char* FOG_NODES_FILE = "/hopfog/fog_nodes.json";
 const char* MESSAGES_FILE  = "/hopfog/messages.json";
 const char* STATS_FILE     = "/hopfog/stats.json";
+
+// Mobile app data files (synced from admin via XBee)
+const char* USERS_FILE         = "/hopfog/users.json";
+const char* CONVERSATIONS_FILE = "/hopfog/conversations.json";
+const char* CHAT_MESSAGES_FILE = "/hopfog/chat_messages.json";
+const char* ANNOUNCEMENTS_FILE = "/hopfog/announcements.json";
 
 // Timing
 unsigned long lastHeartbeat = 0;
@@ -232,6 +257,11 @@ void initDatabase() {
     if (!fileExists(FOG_NODES_FILE)) writeFile(FOG_NODES_FILE, "[]");
     if (!fileExists(MESSAGES_FILE))  writeFile(MESSAGES_FILE,  "[]");
     if (!fileExists(STATS_FILE))     writeFile(STATS_FILE,     "{}");
+    // Mobile app data files
+    if (!fileExists(USERS_FILE))         writeFile(USERS_FILE,         "[]");
+    if (!fileExists(CONVERSATIONS_FILE)) writeFile(CONVERSATIONS_FILE, "[]");
+    if (!fileExists(CHAT_MESSAGES_FILE)) writeFile(CHAT_MESSAGES_FILE, "[]");
+    if (!fileExists(ANNOUNCEMENTS_FILE)) writeFile(ANNOUNCEMENTS_FILE, "[]");
     updateStats();
     Serial.println("[DB] Database initialised");
 }
@@ -289,6 +319,227 @@ bool addMessage(const String& from, const String& to, const String& message) {
     bool ok = writeFile(MESSAGES_FILE, out);
     if (ok) updateStats();
     return ok;
+}
+
+// ========================================
+// Data access – Mobile app data
+// ========================================
+
+// Helper: parse JSON request body
+bool parseJsonBody(DynamicJsonDocument& doc) {
+    String body = server.arg("plain");
+    if (body.isEmpty()) return false;
+    return !deserializeJson(doc, body);
+}
+
+// Helper: get next ID from a JSON array
+int getNextId(const char* filePath) {
+    String raw = readFile(filePath);
+    DynamicJsonDocument doc(8192);
+    if (!deserializeJson(doc, raw) && doc.is<JsonArray>()) {
+        int maxId = 0;
+        for (JsonObject obj : doc.as<JsonArray>()) {
+            int id = obj["id"] | 0;
+            if (id > maxId) maxId = id;
+        }
+        return maxId + 1;
+    }
+    return 1;
+}
+
+// Find user by username or email
+JsonObject findUser(DynamicJsonDocument& doc, const String& usernameOrEmail) {
+    String raw = readFile(USERS_FILE);
+    if (deserializeJson(doc, raw) || !doc.is<JsonArray>()) {
+        doc.to<JsonArray>();
+        return JsonObject();
+    }
+    for (JsonObject u : doc.as<JsonArray>()) {
+        if (u["username"].as<String>() == usernameOrEmail ||
+            u["email"].as<String>() == usernameOrEmail) {
+            return u;
+        }
+    }
+    return JsonObject();
+}
+
+// Find user by ID
+JsonObject findUserById(DynamicJsonDocument& doc, int userId) {
+    String raw = readFile(USERS_FILE);
+    if (deserializeJson(doc, raw) || !doc.is<JsonArray>()) {
+        doc.to<JsonArray>();
+        return JsonObject();
+    }
+    for (JsonObject u : doc.as<JsonArray>()) {
+        if ((u["id"] | 0) == userId) {
+            return u;
+        }
+    }
+    return JsonObject();
+}
+
+// Get username by user ID
+String getUsernameById(int userId) {
+    DynamicJsonDocument doc(8192);
+    JsonObject user = findUserById(doc, userId);
+    if (user.isNull()) return String("User ") + String(userId);
+    return user["username"].as<String>();
+}
+
+// Get conversations for a user
+String getConversationsForUser(int userId) {
+    String raw = readFile(CONVERSATIONS_FILE);
+    DynamicJsonDocument allConvs(8192);
+    if (deserializeJson(allConvs, raw) || !allConvs.is<JsonArray>()) {
+        return "[]";
+    }
+
+    DynamicJsonDocument result(4096);
+    JsonArray arr = result.to<JsonArray>();
+    for (JsonObject c : allConvs.as<JsonArray>()) {
+        JsonArray participants = c["participants"];
+        bool isMember = false;
+        for (JsonVariant p : participants) {
+            if (p.as<int>() == userId) { isMember = true; break; }
+        }
+        if (!isMember) continue;
+
+        // Find contact name (the other participant)
+        String contactName = c["name"] | "Chat";
+        for (JsonVariant p : participants) {
+            if (p.as<int>() != userId) {
+                contactName = getUsernameById(p.as<int>());
+                break;
+            }
+        }
+
+        JsonObject entry = arr.createNestedObject();
+        entry["conversation_id"] = c["id"] | 0;
+        entry["contact_name"]    = contactName;
+        entry["last_message"]    = c["last_message"] | "";
+        entry["timestamp"]       = c["last_timestamp"] | "";
+    }
+
+    String out;
+    serializeJson(result, out);
+    return out;
+}
+
+// Get messages for a conversation
+String getChatMessages(int conversationId, int userId) {
+    String raw = readFile(CHAT_MESSAGES_FILE);
+    DynamicJsonDocument allMsgs(16384);
+    if (deserializeJson(allMsgs, raw) || !allMsgs.is<JsonArray>()) {
+        return "[]";
+    }
+
+    DynamicJsonDocument result(8192);
+    JsonArray arr = result.to<JsonArray>();
+    for (JsonObject m : allMsgs.as<JsonArray>()) {
+        if ((m["conversation_id"] | -1) != conversationId) continue;
+        int senderId = m["sender_id"] | 0;
+        JsonObject entry = arr.createNestedObject();
+        entry["message_id"]          = m["id"] | 0;
+        entry["message_text"]        = m["message_text"] | "";
+        entry["sent_at"]             = m["sent_at"] | "";
+        entry["sender_id"]           = senderId;
+        entry["is_from_current_user"] = (senderId == userId);
+        entry["sender_username"]     = getUsernameById(senderId);
+    }
+
+    String out;
+    serializeJson(result, out);
+    return out;
+}
+
+// Add a chat message
+bool addChatMessage(int conversationId, int senderId, const String& text) {
+    // Add to chat_messages.json
+    String raw = readFile(CHAT_MESSAGES_FILE);
+    DynamicJsonDocument doc(16384);
+    DeserializationError err = deserializeJson(doc, raw);
+    JsonArray arr = (err || !doc.is<JsonArray>()) ? doc.to<JsonArray>() : doc.as<JsonArray>();
+
+    int newId = 1;
+    for (JsonObject m : arr) {
+        int id = m["id"] | 0;
+        if (id >= newId) newId = id + 1;
+    }
+
+    String ts = String(millis() / 1000);
+    JsonObject msg = arr.createNestedObject();
+    msg["id"]              = newId;
+    msg["conversation_id"] = conversationId;
+    msg["sender_id"]       = senderId;
+    msg["message_text"]    = text;
+    msg["sent_at"]         = ts;
+
+    String out;
+    serializeJson(doc, out);
+    if (!writeFile(CHAT_MESSAGES_FILE, out)) return false;
+
+    // Update last_message in conversation
+    String convRaw = readFile(CONVERSATIONS_FILE);
+    DynamicJsonDocument convDoc(8192);
+    if (!deserializeJson(convDoc, convRaw) && convDoc.is<JsonArray>()) {
+        for (JsonObject c : convDoc.as<JsonArray>()) {
+            if ((c["id"] | -1) == conversationId) {
+                c["last_message"]   = text;
+                c["last_timestamp"] = ts;
+                break;
+            }
+        }
+        String convOut;
+        serializeJson(convDoc, convOut);
+        writeFile(CONVERSATIONS_FILE, convOut);
+    }
+
+    return true;
+}
+
+// Find or create a conversation between two users
+int findOrCreateConversation(int user1, int user2) {
+    String raw = readFile(CONVERSATIONS_FILE);
+    DynamicJsonDocument doc(8192);
+    DeserializationError err = deserializeJson(doc, raw);
+    JsonArray arr = (err || !doc.is<JsonArray>()) ? doc.to<JsonArray>() : doc.as<JsonArray>();
+
+    // Search for existing conversation
+    for (JsonObject c : arr) {
+        JsonArray p = c["participants"];
+        if (p.size() == 2) {
+            int a = p[0] | 0, b = p[1] | 0;
+            if ((a == user1 && b == user2) || (a == user2 && b == user1)) {
+                return c["id"] | 0;
+            }
+        }
+    }
+
+    // Create new conversation
+    int newId = 1;
+    for (JsonObject c : arr) {
+        int id = c["id"] | 0;
+        if (id >= newId) newId = id + 1;
+    }
+
+    JsonObject conv = arr.createNestedObject();
+    conv["id"] = newId;
+    JsonArray participants = conv.createNestedArray("participants");
+    participants.add(user1);
+    participants.add(user2);
+    conv["name"]           = "";
+    conv["last_message"]   = "";
+    conv["last_timestamp"] = "";
+
+    String out;
+    serializeJson(doc, out);
+    writeFile(CONVERSATIONS_FILE, out);
+    return newId;
+}
+
+// Find or create the SOS conversation (user to admin user ID 1)
+int findOrCreateSosConversation(int userId) {
+    return findOrCreateConversation(userId, 1);  // admin is user ID 1
 }
 
 // ========================================
@@ -426,6 +677,27 @@ void handleXBeeData(const String& line) {
             String msgsStr;
             serializeJson(doc["messages"], msgsStr);
             writeFile(MESSAGES_FILE, msgsStr);
+        }
+        // Mobile app data sync
+        if (doc.containsKey("users")) {
+            String usersStr;
+            serializeJson(doc["users"], usersStr);
+            writeFile(USERS_FILE, usersStr);
+        }
+        if (doc.containsKey("conversations")) {
+            String convsStr;
+            serializeJson(doc["conversations"], convsStr);
+            writeFile(CONVERSATIONS_FILE, convsStr);
+        }
+        if (doc.containsKey("chat_messages")) {
+            String chatStr;
+            serializeJson(doc["chat_messages"], chatStr);
+            writeFile(CHAT_MESSAGES_FILE, chatStr);
+        }
+        if (doc.containsKey("announcements")) {
+            String annStr;
+            serializeJson(doc["announcements"], annStr);
+            writeFile(ANNOUNCEMENTS_FILE, annStr);
         }
         updateStats();
         saveStats();
@@ -571,6 +843,272 @@ void handleRelay() {
                 "{\"success\":true,\"message\":\"Relayed to admin via XBee\"}");
 }
 
+// ========================================
+// Mobile app API handlers
+// ========================================
+
+// POST /login – mobile app login
+void handleMobileLogin() {
+    DynamicJsonDocument body(512);
+    if (!parseJsonBody(body)) {
+        server.send(400, "application/json",
+                    "{\"success\":false,\"message\":\"Invalid JSON body\"}");
+        return;
+    }
+    String username = body["username"] | "";
+    if (username.isEmpty()) {
+        server.send(400, "application/json",
+                    "{\"success\":false,\"message\":\"Missing username\"}");
+        return;
+    }
+
+    DynamicJsonDocument usersDoc(8192);
+    JsonObject user = findUser(usersDoc, username);
+    if (user.isNull()) {
+        server.send(401, "application/json",
+                    "{\"success\":false,\"message\":\"Invalid credentials\"}");
+        return;
+    }
+
+    StaticJsonDocument<512> resp;
+    resp["success"] = true;
+    JsonObject u = resp.createNestedObject("user");
+    u["user_id"]       = user["id"] | 0;
+    u["username"]      = user["username"] | "";
+    u["has_agreed_sos"] = user["has_agreed_sos"] | false;
+    String out;
+    serializeJson(resp, out);
+    server.send(200, "application/json", out);
+}
+
+// GET /status – server status
+void handleMobileStatus() {
+    server.send(200, "application/json", "{\"online\":true}");
+}
+
+// GET /conversations – list conversations for a user
+void handleMobileConversations() {
+    int userId = server.arg("user_id").toInt();
+    if (userId <= 0) {
+        server.send(400, "application/json", "[]");
+        return;
+    }
+    server.send(200, "application/json", getConversationsForUser(userId));
+}
+
+// GET /messages – get messages for a conversation
+void handleMobileMessages() {
+    int conversationId = server.arg("conversation_id").toInt();
+    int userId         = server.arg("user_id").toInt();
+    if (conversationId <= 0) {
+        server.send(400, "application/json", "[]");
+        return;
+    }
+    server.send(200, "application/json", getChatMessages(conversationId, userId));
+}
+
+// POST /send – send a chat message
+void handleMobileSend() {
+    DynamicJsonDocument body(512);
+    if (!parseJsonBody(body)) {
+        server.send(400, "application/json",
+                    "{\"success\":false,\"message\":\"Invalid JSON\"}");
+        return;
+    }
+    int conversationId = body["conversation_id"] | 0;
+    int senderId       = body["sender_id"] | 0;
+    String text        = body["message_text"] | "";
+    if (conversationId <= 0 || senderId <= 0 || text.isEmpty()) {
+        server.send(400, "application/json",
+                    "{\"success\":false,\"message\":\"Missing fields\"}");
+        return;
+    }
+
+    if (addChatMessage(conversationId, senderId, text)) {
+        // Relay to admin via XBee
+        StaticJsonDocument<512> params;
+        JsonObject p = params.to<JsonObject>();
+        p["conversation_id"] = conversationId;
+        p["sender_id"]       = senderId;
+        p["message_text"]    = text;
+        xbeeSendCommand("RELAY_CHAT_MSG", &p);
+        server.send(200, "application/json",
+                    "{\"success\":true,\"message\":\"sent\",\"secondsRemaining\":0}");
+    } else {
+        server.send(500, "application/json",
+                    "{\"success\":false,\"message\":\"Failed to store\"}");
+    }
+}
+
+// GET /users – list all users (excluding current)
+void handleMobileUsers() {
+    int currentUserId = server.arg("user_id").toInt();
+    String raw = readFile(USERS_FILE);
+    DynamicJsonDocument allUsers(8192);
+    if (deserializeJson(allUsers, raw) || !allUsers.is<JsonArray>()) {
+        server.send(200, "application/json", "[]");
+        return;
+    }
+    DynamicJsonDocument result(4096);
+    JsonArray arr = result.to<JsonArray>();
+    for (JsonObject u : allUsers.as<JsonArray>()) {
+        int uid = u["id"] | 0;
+        if (uid == currentUserId) continue;
+        if (!(u["is_active"] | true)) continue;
+        JsonObject entry = arr.createNestedObject();
+        entry["id"]       = uid;
+        entry["username"] = u["username"] | "";
+    }
+    String out;
+    serializeJson(result, out);
+    server.send(200, "application/json", out);
+}
+
+// POST /create-chat – find or create a chat with another user
+void handleMobileCreateChat() {
+    DynamicJsonDocument body(256);
+    if (!parseJsonBody(body)) {
+        server.send(400, "application/json",
+                    "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+    int user1 = body["user1_id"] | 0;
+    int user2 = body["user2_id"] | 0;
+    if (user1 <= 0 || user2 <= 0) {
+        server.send(400, "application/json",
+                    "{\"error\":\"Missing user IDs\"}");
+        return;
+    }
+    int convId = findOrCreateConversation(user1, user2);
+    String contactName = getUsernameById(user2);
+    StaticJsonDocument<256> resp;
+    resp["conversation_id"] = convId;
+    resp["contact_name"]    = contactName;
+    String out;
+    serializeJson(resp, out);
+    server.send(200, "application/json", out);
+}
+
+// POST /sos – find or create an SOS chat
+void handleMobileSos() {
+    DynamicJsonDocument body(256);
+    if (!parseJsonBody(body)) {
+        server.send(400, "application/json",
+                    "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+    int userId = body["user_id"] | 0;
+    if (userId <= 0) {
+        server.send(400, "application/json",
+                    "{\"error\":\"Missing user_id\"}");
+        return;
+    }
+    int convId = findOrCreateSosConversation(userId);
+    StaticJsonDocument<256> resp;
+    resp["conversation_id"] = convId;
+    resp["contact_name"]    = "Admin (SOS)";
+    String out;
+    serializeJson(resp, out);
+
+    // Relay SOS to admin via XBee
+    StaticJsonDocument<256> params;
+    JsonObject p = params.to<JsonObject>();
+    p["user_id"]         = userId;
+    p["conversation_id"] = convId;
+    xbeeSendCommand("SOS_ALERT", &p);
+
+    server.send(200, "application/json", out);
+}
+
+// GET /new-messages – get messages newer than last_id
+void handleMobileNewMessages() {
+    int lastId = server.arg("last_id").toInt();
+    int userId = server.arg("user_id").toInt();
+    String raw = readFile(CHAT_MESSAGES_FILE);
+    DynamicJsonDocument allMsgs(16384);
+    if (deserializeJson(allMsgs, raw) || !allMsgs.is<JsonArray>()) {
+        server.send(200, "application/json", "[]");
+        return;
+    }
+    DynamicJsonDocument result(8192);
+    JsonArray arr = result.to<JsonArray>();
+    for (JsonObject m : allMsgs.as<JsonArray>()) {
+        if ((m["id"] | 0) <= lastId) continue;
+        int senderId = m["sender_id"] | 0;
+        JsonObject entry = arr.createNestedObject();
+        entry["message_id"]          = m["id"] | 0;
+        entry["message_text"]        = m["message_text"] | "";
+        entry["sent_at"]             = m["sent_at"] | "";
+        entry["sender_id"]           = senderId;
+        entry["is_from_current_user"] = (senderId == userId);
+        entry["sender_username"]     = getUsernameById(senderId);
+    }
+    String out;
+    serializeJson(result, out);
+    server.send(200, "application/json", out);
+}
+
+// POST /agree-sos – mark user as agreed to SOS terms
+void handleMobileAgreeSos() {
+    DynamicJsonDocument body(256);
+    if (!parseJsonBody(body)) {
+        server.send(400, "application/json",
+                    "{\"success\":false}");
+        return;
+    }
+    int userId = body["user_id"] | 0;
+    if (userId <= 0) {
+        server.send(400, "application/json",
+                    "{\"success\":false}");
+        return;
+    }
+    // Update user's has_agreed_sos flag
+    String raw = readFile(USERS_FILE);
+    DynamicJsonDocument doc(8192);
+    if (!deserializeJson(doc, raw) && doc.is<JsonArray>()) {
+        for (JsonObject u : doc.as<JsonArray>()) {
+            if ((u["id"] | 0) == userId) {
+                u["has_agreed_sos"] = true;
+                break;
+            }
+        }
+        String out;
+        serializeJson(doc, out);
+        writeFile(USERS_FILE, out);
+    }
+    server.send(200, "application/json", "{\"success\":true}");
+}
+
+// POST /change-password – change user password (relay to admin)
+void handleMobileChangePassword() {
+    DynamicJsonDocument body(512);
+    if (!parseJsonBody(body)) {
+        server.send(400, "application/json",
+                    "{\"success\":false,\"message\":\"Invalid JSON\"}");
+        return;
+    }
+    int userId = body["user_id"] | 0;
+    if (userId <= 0) {
+        server.send(400, "application/json",
+                    "{\"success\":false,\"message\":\"Missing user_id\"}");
+        return;
+    }
+    // Relay to admin – password changes happen on admin
+    StaticJsonDocument<512> params;
+    JsonObject p = params.to<JsonObject>();
+    p["user_id"]      = userId;
+    p["old_password"] = body["old_password"] | "";
+    p["new_password"] = body["new_password"] | "";
+    xbeeSendCommand("CHANGE_PASSWORD", &p);
+    server.send(200, "application/json",
+                "{\"success\":true,\"message\":\"Password change relayed to admin\"}");
+}
+
+// GET /announcements – list announcements
+void handleMobileAnnouncements() {
+    server.send(200, "application/json", readFile(ANNOUNCEMENTS_FILE));
+}
+
 void handleNotFound() {
     server.send(404, "application/json", "{\"error\":\"Not Found\"}");
 }
@@ -601,8 +1139,21 @@ void setup() {
         Serial.println("[STORAGE] Running without persistent storage");
     }
 
-    // WiFi
-    Serial.printf("[WIFI] Connecting to %s ", WIFI_SSID);
+    // WiFi – AP+STA mode (AP for mobile clients, STA for backhaul)
+    WiFi.mode(WIFI_AP_STA);
+
+    // Start Access Point
+    WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL);
+    Serial.printf("[WIFI-AP] SSID: %s  IP: %s\n",
+                  AP_SSID, WiFi.softAPIP().toString().c_str());
+
+    // Start DNS server – resolves hopfog.com to this node's AP IP
+    dnsServer.start(53, DNS_DOMAIN, WiFi.softAPIP());
+    Serial.printf("[DNS] %s → %s\n",
+                  DNS_DOMAIN, WiFi.softAPIP().toString().c_str());
+
+    // Connect to upstream WiFi (for XBee backhaul / admin access)
+    Serial.printf("[WIFI-STA] Connecting to %s ", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
@@ -611,13 +1162,13 @@ void setup() {
         attempts++;
     }
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\n[WIFI] Connected – IP: %s\n",
+        Serial.printf("\n[WIFI-STA] Connected – IP: %s\n",
                       WiFi.localIP().toString().c_str());
     } else {
-        Serial.println("\n[WIFI] Connection failed – will keep trying");
+        Serial.println("\n[WIFI-STA] Connection failed – AP still works");
     }
 
-    // API routes – paths match HopFog-Web admin for seamless use
+    // Admin device management API
     server.on("/api/health",               HTTP_GET,  handleHealth);
     server.on("/api/stats",                HTTP_GET,  handleStats);
     server.on("/api/fog-devices",          HTTP_GET,  handleGetFogNodes);
@@ -625,6 +1176,21 @@ void setup() {
     server.on("/api/messages",             HTTP_GET,  handleGetMessages);
     server.on("/api/messages",             HTTP_POST, handleAddMessage);
     server.on("/api/xbee/broadcast",       HTTP_POST, handleRelay);
+
+    // Mobile app API – same endpoints as hopfog.com
+    server.on("/login",           HTTP_POST, handleMobileLogin);
+    server.on("/status",          HTTP_GET,  handleMobileStatus);
+    server.on("/conversations",   HTTP_GET,  handleMobileConversations);
+    server.on("/messages",        HTTP_GET,  handleMobileMessages);
+    server.on("/send",            HTTP_POST, handleMobileSend);
+    server.on("/users",           HTTP_GET,  handleMobileUsers);
+    server.on("/create-chat",     HTTP_POST, handleMobileCreateChat);
+    server.on("/sos",             HTTP_POST, handleMobileSos);
+    server.on("/new-messages",    HTTP_GET,  handleMobileNewMessages);
+    server.on("/agree-sos",       HTTP_POST, handleMobileAgreeSos);
+    server.on("/change-password", HTTP_POST, handleMobileChangePassword);
+    server.on("/announcements",   HTTP_GET,  handleMobileAnnouncements);
+
     server.onNotFound(handleNotFound);
     server.begin();
     Serial.println("[HTTP] API server started");
@@ -641,6 +1207,7 @@ void setup() {
 // Loop
 // ========================================
 void loop() {
+    dnsServer.processNextRequest();
     server.handleClient();
 
     // ---- XBee receive ----
@@ -665,6 +1232,7 @@ void loop() {
         if (WiFi.status() == WL_CONNECTED) {
             xbeeHeartbeat();
         } else {
+            WiFi.mode(WIFI_AP_STA);
             WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
         }
     }

@@ -59,6 +59,10 @@ def load_config(path: str = "config.json") -> dict:
 FOG_NODES_FILE = "fog_nodes.json"
 MESSAGES_FILE = "messages.json"
 STATS_FILE = "stats.json"
+USERS_FILE = "users.json"
+CONVERSATIONS_FILE = "conversations.json"
+CHAT_MESSAGES_FILE = "chat_messages.json"
+ANNOUNCEMENTS_FILE = "announcements.json"
 
 
 def _data_path(filename: str) -> str:
@@ -88,6 +92,14 @@ def init_storage():
         _write_json(MESSAGES_FILE, [])
     if not os.path.isfile(_data_path(STATS_FILE)):
         _write_json(STATS_FILE, {})
+    if not os.path.isfile(_data_path(USERS_FILE)):
+        _write_json(USERS_FILE, [])
+    if not os.path.isfile(_data_path(CONVERSATIONS_FILE)):
+        _write_json(CONVERSATIONS_FILE, [])
+    if not os.path.isfile(_data_path(CHAT_MESSAGES_FILE)):
+        _write_json(CHAT_MESSAGES_FILE, [])
+    if not os.path.isfile(_data_path(ANNOUNCEMENTS_FILE)):
+        _write_json(ANNOUNCEMENTS_FILE, [])
     print(f"[STORAGE] Data directory: {os.path.abspath(config['data_dir'])}")
 
 
@@ -265,6 +277,14 @@ def handle_xbee_line(line: str):
             _write_json(FOG_NODES_FILE, doc["fog_nodes"])
         if "messages" in doc:
             _write_json(MESSAGES_FILE, doc["messages"])
+        if "users" in doc:
+            _write_json(USERS_FILE, doc["users"])
+        if "conversations" in doc:
+            _write_json(CONVERSATIONS_FILE, doc["conversations"])
+        if "chat_messages" in doc:
+            _write_json(CHAT_MESSAGES_FILE, doc["chat_messages"])
+        if "announcements" in doc:
+            _write_json(ANNOUNCEMENTS_FILE, doc["announcements"])
         update_stats()
         save_stats()
         print("[XBEE] Data sync complete")
@@ -435,6 +455,246 @@ def api_relay():
         return jsonify({"success": False, "message": "Invalid JSON"}), 400
     xbee_send(data)
     return jsonify({"success": True, "message": "Relayed to admin via XBee"})
+
+
+# ── Mobile app data helpers ──────────────────────────────────────
+def _get_username_by_id(user_id: int) -> str:
+    users = _read_json(USERS_FILE, [])
+    for u in users:
+        if u.get("id") == user_id:
+            return u.get("username", f"User {user_id}")
+    return f"User {user_id}"
+
+
+def _find_or_create_conversation(user1: int, user2: int) -> int:
+    convs = _read_json(CONVERSATIONS_FILE, [])
+    for c in convs:
+        p = c.get("participants", [])
+        if len(p) == 2 and set(p) == {user1, user2}:
+            return c["id"]
+    new_id = max((c.get("id", 0) for c in convs), default=0) + 1
+    convs.append({
+        "id": new_id,
+        "participants": [user1, user2],
+        "name": "",
+        "last_message": "",
+        "last_timestamp": "",
+    })
+    _write_json(CONVERSATIONS_FILE, convs)
+    return new_id
+
+
+# ── Mobile app API (same endpoints as hopfog.com) ────────────────
+
+@app.route("/login", methods=["POST"])
+def mobile_login():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "")
+    if not username:
+        return jsonify({"success": False, "message": "Missing username"}), 400
+    users = _read_json(USERS_FILE, [])
+    for u in users:
+        if u.get("username") == username or u.get("email") == username:
+            return jsonify({
+                "success": True,
+                "user": {
+                    "user_id": u.get("id", 0),
+                    "username": u.get("username", ""),
+                    "has_agreed_sos": u.get("has_agreed_sos", False),
+                },
+            })
+    return jsonify({"success": False, "message": "Invalid credentials"}), 401
+
+
+@app.route("/status", methods=["GET"])
+def mobile_status():
+    return jsonify({"online": True})
+
+
+@app.route("/conversations", methods=["GET"])
+def mobile_conversations():
+    user_id = request.args.get("user_id", 0, type=int)
+    if user_id <= 0:
+        return jsonify([])
+    convs = _read_json(CONVERSATIONS_FILE, [])
+    result = []
+    for c in convs:
+        participants = c.get("participants", [])
+        if user_id not in participants:
+            continue
+        contact_name = c.get("name", "Chat")
+        for pid in participants:
+            if pid != user_id:
+                contact_name = _get_username_by_id(pid)
+                break
+        result.append({
+            "conversation_id": c.get("id", 0),
+            "contact_name": contact_name,
+            "last_message": c.get("last_message", ""),
+            "timestamp": c.get("last_timestamp", ""),
+        })
+    return jsonify(result)
+
+
+@app.route("/messages", methods=["GET"])
+def mobile_messages():
+    conversation_id = request.args.get("conversation_id", 0, type=int)
+    user_id = request.args.get("user_id", 0, type=int)
+    if conversation_id <= 0:
+        return jsonify([])
+    msgs = _read_json(CHAT_MESSAGES_FILE, [])
+    result = []
+    for m in msgs:
+        if m.get("conversation_id") != conversation_id:
+            continue
+        sender_id = m.get("sender_id", 0)
+        result.append({
+            "message_id": m.get("id", 0),
+            "message_text": m.get("message_text", ""),
+            "sent_at": str(m.get("sent_at", "")),
+            "sender_id": sender_id,
+            "is_from_current_user": sender_id == user_id,
+            "sender_username": _get_username_by_id(sender_id),
+        })
+    return jsonify(result)
+
+
+@app.route("/send", methods=["POST"])
+def mobile_send():
+    data = request.get_json(silent=True) or {}
+    conversation_id = data.get("conversation_id", 0)
+    sender_id = data.get("sender_id", 0)
+    message_text = data.get("message_text", "")
+    if not conversation_id or not sender_id or not message_text:
+        return jsonify({"success": False, "message": "Missing fields"}), 400
+
+    msgs = _read_json(CHAT_MESSAGES_FILE, [])
+    new_id = max((m.get("id", 0) for m in msgs), default=0) + 1
+    ts = str(int(time.time()))
+    msgs.append({
+        "id": new_id,
+        "conversation_id": conversation_id,
+        "sender_id": sender_id,
+        "message_text": message_text,
+        "sent_at": ts,
+    })
+    _write_json(CHAT_MESSAGES_FILE, msgs)
+
+    convs = _read_json(CONVERSATIONS_FILE, [])
+    for c in convs:
+        if c.get("id") == conversation_id:
+            c["last_message"] = message_text
+            c["last_timestamp"] = ts
+            break
+    _write_json(CONVERSATIONS_FILE, convs)
+
+    xbee_send_command("RELAY_CHAT_MSG", {
+        "conversation_id": conversation_id,
+        "sender_id": sender_id,
+        "message_text": message_text,
+    })
+    return jsonify({"success": True, "message": "sent", "secondsRemaining": 0})
+
+
+@app.route("/users", methods=["GET"])
+def mobile_users():
+    current_id = request.args.get("user_id", 0, type=int)
+    users = _read_json(USERS_FILE, [])
+    result = [
+        {"id": u.get("id", 0), "username": u.get("username", "")}
+        for u in users
+        if u.get("id") != current_id and u.get("is_active", True)
+    ]
+    return jsonify(result)
+
+
+@app.route("/create-chat", methods=["POST"])
+def mobile_create_chat():
+    data = request.get_json(silent=True) or {}
+    user1 = data.get("user1_id", 0)
+    user2 = data.get("user2_id", 0)
+    if not user1 or not user2:
+        return jsonify({"error": "Missing user IDs"}), 400
+    conv_id = _find_or_create_conversation(user1, user2)
+    return jsonify({
+        "conversation_id": conv_id,
+        "contact_name": _get_username_by_id(user2),
+    })
+
+
+@app.route("/sos", methods=["POST"])
+def mobile_sos():
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id", 0)
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+    conv_id = _find_or_create_conversation(user_id, 1)
+    xbee_send_command("SOS_ALERT", {
+        "user_id": user_id,
+        "conversation_id": conv_id,
+    })
+    return jsonify({
+        "conversation_id": conv_id,
+        "contact_name": "Admin (SOS)",
+    })
+
+
+@app.route("/new-messages", methods=["GET"])
+def mobile_new_messages():
+    last_id = request.args.get("last_id", 0, type=int)
+    user_id = request.args.get("user_id", 0, type=int)
+    msgs = _read_json(CHAT_MESSAGES_FILE, [])
+    result = []
+    for m in msgs:
+        if m.get("id", 0) <= last_id:
+            continue
+        sender_id = m.get("sender_id", 0)
+        result.append({
+            "message_id": m.get("id", 0),
+            "message_text": m.get("message_text", ""),
+            "sent_at": str(m.get("sent_at", "")),
+            "sender_id": sender_id,
+            "is_from_current_user": sender_id == user_id,
+            "sender_username": _get_username_by_id(sender_id),
+        })
+    return jsonify(result)
+
+
+@app.route("/agree-sos", methods=["POST"])
+def mobile_agree_sos():
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id", 0)
+    if not user_id:
+        return jsonify({"success": False}), 400
+    users = _read_json(USERS_FILE, [])
+    for u in users:
+        if u.get("id") == user_id:
+            u["has_agreed_sos"] = True
+            break
+    _write_json(USERS_FILE, users)
+    return jsonify({"success": True})
+
+
+@app.route("/change-password", methods=["POST"])
+def mobile_change_password():
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id", 0)
+    if not user_id:
+        return jsonify({"success": False, "message": "Missing user_id"}), 400
+    xbee_send_command("CHANGE_PASSWORD", {
+        "user_id": user_id,
+        "old_password": data.get("old_password", ""),
+        "new_password": data.get("new_password", ""),
+    })
+    return jsonify({
+        "success": True,
+        "message": "Password change relayed to admin",
+    })
+
+
+@app.route("/announcements", methods=["GET"])
+def mobile_announcements():
+    return jsonify(_read_json(ANNOUNCEMENTS_FILE, []))
 
 
 # ── Main ─────────────────────────────────────────────────────────

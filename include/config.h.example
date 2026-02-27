@@ -36,3 +36,12 @@
 
 // Data sync interval in milliseconds (default 60 s)
 // #define SYNC_INTERVAL_MS 60000
+
+// ── WiFi Access Point (for mobile clients) ─────────────────────
+// The node creates a WiFi hotspot so mobile phones can connect.
+// A built-in DNS server resolves the domain to this node's IP,
+// so the mobile app's BASE_URL (http://hopfog.com) works unchanged.
+#define AP_SSID     "HopFog-Network"
+#define AP_PASSWORD "hopfog123"
+// #define AP_CHANNEL 6
+// #define DNS_DOMAIN "hopfog.com"
