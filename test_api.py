@@ -144,6 +144,119 @@ def test_relay():
         return False
 
 
+# ── Mobile app endpoint tests ────────────────────────────────────
+
+def test_mobile_status():
+    _test(8, "GET /status")
+    try:
+        r = requests.get(f"{BASE_URL}/status", timeout=5)
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200 and r.json().get("online") is True
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_login():
+    _test(9, "POST /login")
+    payload = {"username": "testuser", "password": "pass"}
+    print(f"Payload: {payload}")
+    try:
+        r = requests.post(
+            f"{BASE_URL}/login",
+            json=payload,
+            timeout=5,
+        )
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        # 401 is expected when no users are loaded
+        return r.status_code in (200, 401)
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_conversations():
+    _test(10, "GET /conversations")
+    try:
+        r = requests.get(f"{BASE_URL}/conversations", params={"user_id": 1}, timeout=5)
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_create_chat():
+    _test(11, "POST /create-chat")
+    payload = {"user1_id": 1, "user2_id": 2}
+    print(f"Payload: {payload}")
+    try:
+        r = requests.post(f"{BASE_URL}/create-chat", json=payload, timeout=5)
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200 and "conversation_id" in r.json()
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_send():
+    _test(12, "POST /send")
+    payload = {"conversation_id": 1, "sender_id": 1, "message_text": "Test msg"}
+    print(f"Payload: {payload}")
+    try:
+        r = requests.post(f"{BASE_URL}/send", json=payload, timeout=5)
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200 and r.json().get("success") is True
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_messages():
+    _test(13, "GET /messages")
+    try:
+        r = requests.get(
+            f"{BASE_URL}/messages",
+            params={"conversation_id": 1, "user_id": 1},
+            timeout=5,
+        )
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200 and isinstance(r.json(), list)
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_users():
+    _test(14, "GET /users")
+    try:
+        r = requests.get(f"{BASE_URL}/users", params={"user_id": 1}, timeout=5)
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
+def test_mobile_announcements():
+    _test(15, "GET /announcements")
+    try:
+        r = requests.get(f"{BASE_URL}/announcements", timeout=5)
+        print(f"Status: {r.status_code}")
+        _pprint(r.json())
+        return r.status_code == 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+
 def main():
     _header("HopFog Node – API Test Suite")
     print(f"Target: {BASE_URL}")
@@ -161,7 +274,7 @@ def main():
         sys.exit(1)
 
     passed = 0
-    total = 7
+    total = 15
 
     if test_health():
         passed += 1
@@ -176,6 +289,22 @@ def main():
     if test_add_message():
         passed += 1
     if test_relay():
+        passed += 1
+    if test_mobile_status():
+        passed += 1
+    if test_mobile_login():
+        passed += 1
+    if test_mobile_conversations():
+        passed += 1
+    if test_mobile_create_chat():
+        passed += 1
+    if test_mobile_send():
+        passed += 1
+    if test_mobile_messages():
+        passed += 1
+    if test_mobile_users():
+        passed += 1
+    if test_mobile_announcements():
         passed += 1
 
     _header("Results")

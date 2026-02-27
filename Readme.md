@@ -14,8 +14,10 @@ A headless node that connects to the [HopFog-Web](https://github.com/hyoono/HopF
 
 The HopFog Node acts as a **router / range extender** for the HopFog network:
 
+- Creates its own **WiFi Access Point** ("HopFog-Network") so mobile devices can connect
+- Built-in **DNS server** resolves `hopfog.com` to the node's own IP — the [HopFogMobile](https://github.com/MasterRoxy/HopFogMobile) app works without any URL changes
 - Communicates with the admin ESP32-CAM over **XBee** (Serial)
-- Exposes the same **REST API endpoints** so nearby clients can talk to the node instead of the admin
+- Exposes the same **REST API endpoints** as hopfog.com so the mobile app and admin tools work seamlessly
 - Stores data locally (**SD card** on ESP32-CAM, **LittleFS** on D1 Mini)
 - **No web interface** – purely headless JSON API
 - Auto-registers with the admin and sends periodic heartbeats
@@ -80,8 +82,11 @@ See [`pc_node/README.md`](pc_node/README.md) for full details.
 ## API Endpoints
 
 All responses are JSON. No authentication is required.
-Endpoint paths match the [HopFog-Web](https://github.com/hyoono/HopFog-Web) admin
-so that clients can talk to either system using the same URLs.
+Endpoint paths match [hopfog.com](https://github.com/hyoono/HopFog-Web) so that
+the [HopFogMobile](https://github.com/MasterRoxy/HopFogMobile) app and admin
+tools work seamlessly — **no URL changes needed** in the mobile app.
+
+### Admin / Device Management
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -93,11 +98,29 @@ so that clients can talk to either system using the same URLs.
 | POST | `/api/messages` | Send a message (also relayed to admin) |
 | POST | `/api/xbee/broadcast` | Forward raw JSON to admin via XBee |
 
-### Example – add a message
+### Mobile App (same as hopfog.com)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/login` | Authenticate a mobile user |
+| GET | `/status` | Server online check |
+| GET | `/conversations` | List conversations for a user |
+| GET | `/messages` | Get messages for a conversation |
+| POST | `/send` | Send a chat message |
+| GET | `/users` | List available users |
+| POST | `/create-chat` | Find or create a 1-on-1 chat |
+| POST | `/sos` | Create an SOS chat with admin |
+| GET | `/new-messages` | Poll for new messages |
+| POST | `/agree-sos` | Mark SOS agreement |
+| POST | `/change-password` | Change password (relayed to admin) |
+| GET | `/announcements` | Get announcements |
+
+### Example – send a chat message
 
 ```bash
-curl -X POST http://<node-ip>/api/messages \
-     -d "from=alice&to=bob&message=Hello+from+node"
+curl -X POST http://hopfog.com/send \
+     -H "Content-Type: application/json" \
+     -d '{"conversation_id":1,"sender_id":2,"message_text":"Hello!"}'
 ```
 
 ## XBee Communication Protocol
