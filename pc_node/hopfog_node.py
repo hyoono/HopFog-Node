@@ -22,6 +22,8 @@ import sys
 import threading
 import time
 
+from typing import Optional
+
 import serial
 from flask import Flask, jsonify, request
 
@@ -153,7 +155,7 @@ def add_message(from_user: str, to_user: str, message: str) -> bool:
 
 
 # ── XBee (USB serial) ───────────────────────────────────────────
-xbee_serial: serial.Serial | None = None
+xbee_serial: Optional[serial.Serial] = None
 xbee_lock = threading.Lock()
 
 
@@ -184,7 +186,7 @@ def xbee_send(data: dict):
             print(f"[XBEE-TX] Error: {exc}")
 
 
-def xbee_send_command(cmd: str, params: dict | None = None):
+def xbee_send_command(cmd: str, params: Optional[dict] = None):
     frame: dict = {
         "cmd": cmd,
         "node_id": config["node_id"],
