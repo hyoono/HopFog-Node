@@ -183,6 +183,53 @@ After flashing the node and confirming WiFi connection via Serial Monitor:
 python test_api.py <node-ip>
 ```
 
+## Multi-Node Deployment (Daisy Chaining)
+
+**Yes — you can flash the same firmware on multiple ESP32-CAM + XBee combos
+and they will all work.** Each node independently connects to the admin
+(coordinator) via XBee mesh routing. There are no code changes needed.
+
+### What you need per additional node
+
+1. Another **ESP32-CAM** (or D1 Mini or PC) with an **XBee module**
+2. A unique **`NODE_ID`** in `include/config.h` (e.g. `"node-02"`, `"node-03"`)
+3. The XBee configured as **Router** on the **same PAN ID** as the admin's Coordinator
+
+### How it works
+
+```
+                 ┌────────────┐
+                 │   Admin    │  XBee Coordinator
+                 │  ESP32-CAM │  PAN ID: 1234
+                 └──────┬─────┘
+                   XBee │ mesh
+            ┌──────────┼──────────┐
+            │          │          │
+     ┌──────▼─────┐ ┌──▼────┐ ┌──▼──────────┐
+     │  Node A    │ │Node B │ │  Node C      │
+     │  "node-01" │ │"node-02"│ │ "node-03"  │
+     │  Router    │ │Router │ │  Router      │
+     └────────────┘ └───────┘ └──────────────┘
+```
+
+- XBee ZigBee mesh handles multi-hop routing **automatically** at the
+  radio layer. If Node C can't reach the admin directly, its XBee will
+  route through Node A or Node B — no application code changes needed.
+- Each node creates its own WiFi AP ("HopFog-Network") and serves the
+  same API. Phones connect to whichever node has the strongest signal.
+- Each node's DNS server resolves `hopfog.com` to its own AP IP, so
+  the mobile app works without URL changes on any node.
+
+### Configuration checklist (per node)
+
+| Setting | Where | Notes |
+|---------|-------|-------|
+| `NODE_ID` | `include/config.h` | **Must be unique** per node (e.g. `"node-02"`) |
+| XBee role | XCTU | Set to **Router** (CE=0, JV=1) |
+| PAN ID | XCTU | Must match admin's Coordinator |
+| `AP_SSID` | `include/config.h` | Optional: keep same or make unique per node |
+| `WIFI_SSID` | `include/config.h` | Upstream WiFi (can be blank if no backhaul) |
+
 ## Differences from HopFog-Web (Admin)
 
 | Feature | Admin (HopFog-Web) | Node (this repo) |

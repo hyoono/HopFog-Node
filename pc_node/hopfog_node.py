@@ -301,6 +301,10 @@ def handle_xbee_line(line: str):
             )
             print("[XBEE] Fog node added from admin")
     elif cmd == "GET_STATS":
+        # Only respond if the request is addressed to this node (or to all)
+        target = doc.get("node_id", "all")
+        if target not in (config["node_id"], "all"):
+            return  # not for us
         resp = {
             "cmd": "STATS_RESPONSE",
             "node_id": config["node_id"],
