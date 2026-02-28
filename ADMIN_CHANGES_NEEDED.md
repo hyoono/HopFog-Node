@@ -237,7 +237,7 @@ def _handle_sync_request(node_id):
                 "id": b.id,
                 "title": b.subject,
                 "message": b.body,
-                "created_at": str(b.created_at),
+                "created_at": str(int(b.created_at.timestamp())) if b.created_at else "0",
             }
             for b in broadcasts
         ]
@@ -347,9 +347,9 @@ def _handle_change_password(params):
         db.close()
 
 
-def _handle_stats_response(node_id, doc):
+def _handle_stats_response(node_id, params):
     """Store stats reported by a node."""
-    node_registry.update_stats(node_id, doc)
+    node_registry.update_stats(node_id, params)
 ```
 
 ### 3.3 New file: `services/node_registry.py`
@@ -584,7 +584,7 @@ All communication is newline-delimited JSON. Every frame has at minimum:
     {"id": 1, "conversation_id": 1, "sender_id": 2, "message_text": "Hello", "sent_at": "1234567890"}
   ],
   "announcements": [
-    {"id": 1, "title": "Test", "message": "Test announcement", "created_at": "2025-01-01T00:00:00"}
+    {"id": 1, "title": "Test", "message": "Test announcement", "created_at": "1234567890"}
   ],
   "fog_nodes": [
     {"id": 1, "device_name": "node-01", "ip_address": "192.168.4.1", "status": "active", "added_at": 1234567890}
@@ -594,6 +594,11 @@ All communication is newline-delimited JSON. Every frame has at minimum:
   ]
 }
 ```
+
+> **Timestamp convention:** All timestamps are Unix seconds (integers)
+> or stringified Unix seconds (e.g. `"1234567890"`). The node firmware
+> uses `millis()/1000` (uptime-based, not wall-clock). The admin should
+> convert its `datetime` columns to Unix seconds when building SYNC_DATA.
 
 ---
 
