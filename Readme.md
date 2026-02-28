@@ -205,11 +205,11 @@ and they will all work.** Each node independently connects to the admin
                    XBee │ mesh
             ┌──────────┼──────────┐
             │          │          │
-     ┌──────▼─────┐ ┌──▼────┐ ┌──▼──────────┐
-     │  Node A    │ │Node B │ │  Node C      │
-     │  "node-01" │ │"node-02"│ │ "node-03"  │
-     │  Router    │ │Router │ │  Router      │
-     └────────────┘ └───────┘ └──────────────┘
+     ┌──────▼─────┐ ┌──▼──────┐ ┌──▼──────────┐
+     │  Node A    │ │ Node B  │ │  Node C      │
+     │  "node-01" │ │"node-02"│ │  "node-03"   │
+     │  Router    │ │ Router  │ │  Router      │
+     └────────────┘ └─────────┘ └──────────────┘
 ```
 
 - XBee ZigBee mesh handles multi-hop routing **automatically** at the

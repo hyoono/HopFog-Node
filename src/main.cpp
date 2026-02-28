@@ -728,10 +728,12 @@ void handleXBeeData(const String& line) {
     }
     else if (command == "GET_STATS") {
         // Only respond if the request is addressed to this node (or to all)
-        const char* targetNode = doc["node_id"];
-        if (targetNode && strcmp(targetNode, NODE_ID) != 0
-                       && strcmp(targetNode, "all") != 0) {
-            return;  // not for us
+        if (doc.containsKey("node_id") && doc["node_id"].is<const char*>()) {
+            const char* targetNode = doc["node_id"];
+            if (strcmp(targetNode, NODE_ID) != 0
+                && strcmp(targetNode, "all") != 0) {
+                return;  // not for us
+            }
         }
         StaticJsonDocument<512> resp;
         resp["cmd"]              = "STATS_RESPONSE";
