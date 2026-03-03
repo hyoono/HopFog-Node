@@ -57,13 +57,13 @@ if errorlevel 1 (
 echo [2/3] Creating empty JSON data files ...
 
 REM Only create files if they don't already exist (preserve existing data)
-if not exist %DRIVE%:\hopfog\fog_nodes.json     echo []> %DRIVE%:\hopfog\fog_nodes.json
-if not exist %DRIVE%:\hopfog\messages.json       echo []> %DRIVE%:\hopfog\messages.json
-if not exist %DRIVE%:\hopfog\stats.json          echo {}> %DRIVE%:\hopfog\stats.json
-if not exist %DRIVE%:\hopfog\users.json          echo []> %DRIVE%:\hopfog\users.json
-if not exist %DRIVE%:\hopfog\conversations.json  echo []> %DRIVE%:\hopfog\conversations.json
-if not exist %DRIVE%:\hopfog\chat_messages.json  echo []> %DRIVE%:\hopfog\chat_messages.json
-if not exist %DRIVE%:\hopfog\announcements.json  echo []> %DRIVE%:\hopfog\announcements.json
+if not exist %DRIVE%:\hopfog\fog_nodes.json    echo []> %DRIVE%:\hopfog\fog_nodes.json
+if not exist %DRIVE%:\hopfog\messages.json     echo []> %DRIVE%:\hopfog\messages.json
+if not exist %DRIVE%:\hopfog\stats.json        echo {}> %DRIVE%:\hopfog\stats.json
+if not exist %DRIVE%:\hopfog\users.json        echo []> %DRIVE%:\hopfog\users.json
+if not exist %DRIVE%:\hopfog\conversations.json echo []> %DRIVE%:\hopfog\conversations.json
+if not exist %DRIVE%:\hopfog\chat_messages.json echo []> %DRIVE%:\hopfog\chat_messages.json
+if not exist %DRIVE%:\hopfog\announcements.json echo []> %DRIVE%:\hopfog\announcements.json
 
 echo [3/3] Verifying ...
 echo.

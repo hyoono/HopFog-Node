@@ -76,5 +76,6 @@ echo    2. Insert the SD card into the ESP32-CAM
 echo    3. Power on / press RESET
 echo    4. Run: monitor.bat     to see serial output
 echo    5. Connect to WiFi "HopFog-Network" (password: hopfog123)
-echo    6. Open http://hopfog.com/api/health in your browser
+echo    6. Open http://hopfog.com/api/health (DNS resolves to node IP)
+echo       or http://192.168.4.1/api/health
 echo.
