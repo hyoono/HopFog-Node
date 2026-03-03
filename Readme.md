@@ -65,6 +65,46 @@ pio run -e d1_mini -t upload
 pio device monitor
 ```
 
+## Quick Start (Windows Batch Files)
+
+Windows `.bat` scripts are provided for one-click build, flash, and SD card
+preparation — no need to remember PlatformIO commands.
+
+| Script | Description |
+|--------|-------------|
+| `build.bat` | Build firmware (`build.bat` or `build.bat d1_mini`) |
+| `flash.bat` | Flash firmware (`flash.bat COM3` or `flash.bat COM3 d1_mini`) |
+| `monitor.bat` | Serial monitor at 115200 baud (`monitor.bat` or `monitor.bat COM3`) |
+| `prepare_sd.bat` | Create `/hopfog/` directory and empty JSON files on SD card (`prepare_sd.bat E`) |
+| `deploy_all.bat` | All-in-one: build → prepare SD → flash (`deploy_all.bat E COM3`) |
+
+### Full deployment in one command
+
+```batch
+deploy_all.bat E COM3
+```
+
+This will:
+1. Build the ESP32-CAM firmware
+2. Prepare the SD card on `E:\` with `/hopfog/` and empty JSON data files
+3. Flash the firmware to the ESP32-CAM on COM3
+
+### Individual steps
+
+```batch
+REM 1. Build only
+build.bat
+
+REM 2. Prepare SD card (drive E:)
+prepare_sd.bat E
+
+REM 3. Flash to ESP32-CAM on COM3
+flash.bat COM3
+
+REM 4. Open serial monitor
+monitor.bat COM3
+```
+
 ## Quick Start (Windows PC – Proof of Concept)
 
 No embedded hardware needed. Plug in an XBee via USB, enable your
@@ -158,6 +198,11 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 
 ```
 ├── platformio.ini            # PlatformIO build configuration
+├── build.bat                 # Build firmware (Windows)
+├── flash.bat                 # Flash firmware to board (Windows)
+├── monitor.bat               # Open serial monitor (Windows)
+├── prepare_sd.bat            # Prepare SD card with data files (Windows)
+├── deploy_all.bat            # One-click build + SD + flash (Windows)
 ├── src/
 │   └── main.cpp              # Firmware (both boards via #ifdef)
 ├── include/
