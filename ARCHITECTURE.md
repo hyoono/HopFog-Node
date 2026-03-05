@@ -167,7 +167,9 @@ app works without any URL changes.
 
 ### 4. XBee Protocol
 
-All XBee traffic is newline-delimited JSON:
+All XBee traffic uses **API mode 1** (binary framed packets). JSON payloads
+are wrapped in 0x10 Transmit Request frames (send) and extracted from 0x90
+Receive Packet frames (receive). The JSON payload inside each frame is:
 
 ```json
 {"cmd":"HEARTBEAT","node_id":"node-01","ts":12345,"params":{...}}

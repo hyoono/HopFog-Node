@@ -15,7 +15,7 @@ The HopFog Node acts as a **router / range extender** for the HopFog network:
 
 - Creates its own **WiFi Access Point** ("HopFog-Network") so mobile devices can connect
 - Built-in **DNS server** resolves `hopfog.com` to the node's own IP — the [HopFogMobile](https://github.com/MasterRoxy/HopFogMobile) app works without any URL changes
-- Communicates with the admin ESP32-CAM over **XBee** (Serial)
+- Communicates with the admin ESP32-CAM over **XBee API mode 1** (binary framed packets)
 - Exposes the same **REST API endpoints** as hopfog.com so the mobile app and admin tools work seamlessly
 - Stores data locally (**SD card** on ESP32-CAM, **LittleFS** on D1 Mini)
 - **No web interface** – purely headless JSON API
@@ -248,6 +248,7 @@ and they will all work.** Each node independently connects to the admin
 |---------|-------|-------|
 | `NODE_ID` | `include/config.h` | **Must be unique** per node (e.g. `"node-02"`) |
 | XBee role | XCTU | Set to **Router** (CE=0, JV=1) |
+| XBee API mode | XCTU | **AP=1** (API mode 1 — must match admin) |
 | PAN ID | XCTU | Must match admin's Coordinator |
 | `AP_SSID` | `include/config.h` | Optional: keep same or make unique per node |
 | `WIFI_SSID` | `include/config.h` | Upstream WiFi (can be blank if no backhaul) |

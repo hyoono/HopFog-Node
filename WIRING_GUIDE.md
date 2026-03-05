@@ -124,24 +124,29 @@ Just plug in the USB cable and run `pio run -e d1_mini -t upload`.
 
 Use **XCTU** (Digi's configuration tool) to set up the XBee modules:
 
-### Node XBee (Router / End-Device)
+### Node XBee (Router)
 
 | Setting | Value |
 |---------|-------|
-| Function Set | Zigbee Router AT / Zigbee End Device AT |
+| Function Set | Zigbee Router API |
 | PAN ID | Must match admin |
-| Baud Rate | 9600 (default) |
-| API Mode | Transparent (AT) |
+| Baud Rate (BD) | 9600 (default) |
+| API Mode (AP) | **1** (API mode 1) |
+| Coordinator Enable (CE) | 0 (Router) |
 
 ### Admin XBee (Coordinator)
 
 | Setting | Value |
 |---------|-------|
-| Function Set | Zigbee Coordinator AT |
+| Function Set | Zigbee Coordinator API |
 | PAN ID | Same as node |
-| Baud Rate | 9600 |
+| Baud Rate (BD) | 9600 |
+| API Mode (AP) | **1** (API mode 1) |
+| Coordinator Enable (CE) | 1 (Coordinator) |
 
-Both modules must be on the **same PAN ID** and use the same baud rate.
+Both modules must be on the **same PAN ID**, use the same baud rate, and both
+must have **AP=1** (API mode 1). In API mode, DH/DL are not needed — the
+destination address is specified in each Transmit Request frame header.
 
 ---
 
