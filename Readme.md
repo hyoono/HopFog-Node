@@ -8,7 +8,6 @@ A headless node that connects to the [HopFog-Web](https://github.com/hyoono/HopF
 |----------|------------|---------|-------------|
 | **ESP32-CAM** (AI-Thinker) | Hardware UART2 (GPIO 13 RX / GPIO 12 TX) | SD card (SD_MMC 1-bit) | `pio run -e esp32cam` |
 | **Wemos D1 Mini** (ESP8266) | SoftwareSerial (D5 RX / D6 TX) | LittleFS (on-chip flash) | `pio run -e d1_mini` |
-| **Windows PC** (proof of concept) | USB serial (pyserial) | Local JSON files | `python pc_node/hopfog_node.py` |
 
 ## Overview
 
@@ -105,22 +104,6 @@ REM 4. Open serial monitor
 monitor.bat COM3
 ```
 
-## Quick Start (Windows PC – Proof of Concept)
-
-No embedded hardware needed. Plug in an XBee via USB, enable your
-PC's Wi-Fi hotspot, and run:
-
-```bash
-cd pc_node
-pip install -r requirements.txt
-copy config.example.json config.json   # edit with your COM port
-python hopfog_node.py --http-port 80   # port 80 for mobile app compat
-```
-
-See [`pc_node/README.md`](pc_node/README.md) for a quick reference and
-[`PC_SETUP_GUIDE.md`](PC_SETUP_GUIDE.md) for a full step-by-step
-deployment walkthrough (hotspot, DNS, user seeding, background service).
-
 ## API Endpoints
 
 All responses are JSON. No authentication is required.
@@ -207,14 +190,8 @@ The node and admin exchange newline-delimited JSON over XBee serial. Each frame 
 │   └── main.cpp              # Firmware (both boards via #ifdef)
 ├── include/
 │   └── config.h.example      # Configuration template
-├── pc_node/                   # Windows PC proof of concept
-│   ├── hopfog_node.py         # Python node (Flask + pyserial)
-│   ├── requirements.txt       # Python dependencies
-│   ├── config.example.json    # Configuration template
-│   └── README.md              # PC-specific quick reference
 ├── test_api.py               # Python API test script (15 tests)
 ├── ARCHITECTURE.md            # System architecture document
-├── PC_SETUP_GUIDE.md          # Step-by-step PC deployment guide
 ├── WIRING_GUIDE.md            # Hardware wiring details
 ├── Readme.md                  # This file
 └── .gitignore
@@ -236,7 +213,7 @@ and they will all work.** Each node independently connects to the admin
 
 ### What you need per additional node
 
-1. Another **ESP32-CAM** (or D1 Mini or PC) with an **XBee module**
+1. Another **ESP32-CAM** (or D1 Mini) with an **XBee module**
 2. A unique **`NODE_ID`** in `include/config.h` (e.g. `"node-02"`, `"node-03"`)
 3. The XBee configured as **Router** on the **same PAN ID** as the admin's Coordinator
 
@@ -294,5 +271,4 @@ Same as the original HopFog-Web project.
 - [HopFog-Web](https://github.com/hyoono/HopFog-Web) – Admin side
 - [HopFogMobile](https://github.com/MasterRoxy/HopFogMobile) – Mobile app
 - [ARCHITECTURE.md](ARCHITECTURE.md) – Detailed architecture
-- [PC_SETUP_GUIDE.md](PC_SETUP_GUIDE.md) – PC deployment walkthrough
 - [WIRING_GUIDE.md](WIRING_GUIDE.md) – Hardware wiring
