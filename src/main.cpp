@@ -144,8 +144,9 @@ const char* ANNOUNCEMENTS_FILE = "/hopfog/announcements.json";
 unsigned long lastHeartbeat = 0;
 unsigned long lastSync      = 0;
 
-// XBee receive buffer
+// XBee receive buffer (pre-reserve for large SYNC_DATA payloads)
 String xbeeBuffer = "";
+const size_t XBEE_BUFFER_RESERVE = 8192;
 
 // ========================================
 // Storage helpers (SD_MMC on ESP32-CAM,
@@ -652,12 +653,15 @@ void xbeeRelayFogNode(const String& name, const String& ip, const String& status
 // XBee incoming handler
 // ========================================
 void handleXBeeData(const String& line) {
-    Serial.printf("[XBEE-RX] %s\n", line.c_str());
+    Serial.printf("[XBEE-RX] (%d bytes) %s\n", line.length(), line.c_str());
 
-    StaticJsonDocument<1024> doc;
+    // Use DynamicJsonDocument large enough for SYNC_DATA payloads
+    // (users + announcements + conversations + chat_messages + fog_nodes + messages)
+    DynamicJsonDocument doc(16384);
     DeserializationError err = deserializeJson(doc, line);
     if (err) {
-        Serial.printf("[XBEE] JSON parse error: %s\n", err.c_str());
+        Serial.printf("[XBEE] JSON parse error: %s (input %d bytes)\n",
+                      err.c_str(), line.length());
         return;
     }
 
@@ -673,40 +677,48 @@ void handleXBeeData(const String& line) {
         Serial.println("[XBEE] Registered with admin successfully");
     }
     else if (command == "SYNC_DATA") {
+        int synced = 0;
         if (doc.containsKey("fog_nodes")) {
             String nodesStr;
             serializeJson(doc["fog_nodes"], nodesStr);
             writeFile(FOG_NODES_FILE, nodesStr);
+            synced++;
         }
         if (doc.containsKey("messages")) {
             String msgsStr;
             serializeJson(doc["messages"], msgsStr);
             writeFile(MESSAGES_FILE, msgsStr);
+            synced++;
         }
         // Mobile app data sync
         if (doc.containsKey("users")) {
             String usersStr;
             serializeJson(doc["users"], usersStr);
             writeFile(USERS_FILE, usersStr);
+            synced++;
         }
         if (doc.containsKey("conversations")) {
             String convsStr;
             serializeJson(doc["conversations"], convsStr);
             writeFile(CONVERSATIONS_FILE, convsStr);
+            synced++;
         }
         if (doc.containsKey("chat_messages")) {
             String chatStr;
             serializeJson(doc["chat_messages"], chatStr);
             writeFile(CHAT_MESSAGES_FILE, chatStr);
+            synced++;
         }
         if (doc.containsKey("announcements")) {
             String annStr;
             serializeJson(doc["announcements"], annStr);
             writeFile(ANNOUNCEMENTS_FILE, annStr);
+            synced++;
         }
         updateStats();
         saveStats();
-        Serial.println("[XBEE] Data sync complete");
+        Serial.printf("[XBEE] Data sync complete (%d collections, doc %d/%d bytes)\n",
+                      synced, doc.memoryUsage(), doc.capacity());
     }
     else if (command == "BROADCAST_MSG") {
         const char* from    = doc["params"]["from"];
@@ -724,6 +736,25 @@ void handleXBeeData(const String& line) {
         if (name && ip) {
             addFogNode(name, ip, status ? status : "active");
             Serial.println("[XBEE] Fog node added from admin");
+        }
+    }
+    else if (command == "RELAY_CHAT_MSG") {
+        // Admin relays a chat message from a mobile user on the admin side
+        int convId   = doc["conversation_id"] | doc["params"]["conversation_id"] | 0;
+        int senderId = doc["sender_id"]       | doc["params"]["sender_id"]       | 0;
+        const char* text = doc["message_text"] | doc["params"]["message_text"];
+        if (!text) text = doc["params"]["message"];
+        if (convId > 0 && senderId > 0 && text) {
+            addChatMessage(convId, senderId, String(text));
+            Serial.println("[XBEE] Chat message relayed from admin");
+        }
+    }
+    else if (command == "SOS_ALERT") {
+        // Admin relays an SOS alert
+        int userId = doc["user_id"] | doc["params"]["user_id"] | 0;
+        if (userId > 0) {
+            int convId = findOrCreateSosConversation(userId);
+            Serial.printf("[XBEE] SOS alert for user %d (conv %d)\n", userId, convId);
         }
     }
     else if (command == "GET_STATS") {
@@ -1133,6 +1164,9 @@ void setup() {
     Serial.begin(115200);
     Serial.println("\n\nHopFog Node – Range Extender");
     Serial.println("============================");
+
+    // Pre-reserve XBee buffer for large SYNC_DATA payloads
+    xbeeBuffer.reserve(XBEE_BUFFER_RESERVE);
 
 #ifdef ARDUINO_ARCH_ESP32
     Serial.println("[BOARD] ESP32-CAM (AI-Thinker)");
