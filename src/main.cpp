@@ -151,9 +151,23 @@ unsigned long lastRegister  = 0;
 // Registration state – retry REGISTER until admin ACKs
 bool registeredWithAdmin = false;
 
-// XBee receive buffer (pre-reserve for large SYNC_DATA payloads)
-String xbeeBuffer = "";
-const size_t XBEE_BUFFER_RESERVE = 8192;
+// ── XBee API mode 1 constants ───────────────────────────────────
+#define XBEE_START_DELIM  0x7E
+#define XBEE_TX_REQUEST   0x10   // Transmit Request frame type
+#define XBEE_RX_PACKET    0x90   // Receive Packet frame type
+#define XBEE_TX_STATUS    0x8B   // Transmit Status frame type
+#define XBEE_MAX_FRAME    512    // max frame data buffer
+
+// API frame receive state machine
+enum RxState { WAIT_DELIM, GOT_LEN_HI, GOT_LEN_LO, READING_DATA, GOT_CHECKSUM };
+static RxState  rxState     = WAIT_DELIM;
+static uint16_t rxFrameLen  = 0;
+static uint16_t rxIdx       = 0;
+static uint8_t  rxFrame[XBEE_MAX_FRAME];
+static uint8_t  rxChecksum  = 0;
+
+// API frame send counter
+static uint8_t frameIdCounter = 0;
 
 // ========================================
 // Storage helpers (SD_MMC on ESP32-CAM,
@@ -591,10 +605,48 @@ void saveStats() {
 }
 
 // ========================================
-// XBee helpers
+// XBee API mode 1 helpers
 // ========================================
+
+// Build and send a 0x10 Transmit Request frame (broadcast)
+// Frame: 0x7E | LenHi LenLo | 0x10 FrameID Dest64[8] Dest16[2] Radius Options | payload | Checksum
+uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
+    if (len == 0 || len > XBEE_MAX_FRAME - 14) return 0;
+
+    uint16_t frameDataLen = 14 + len;
+    if (++frameIdCounter == 0) frameIdCounter = 1;
+    uint8_t fid = frameIdCounter;
+
+    uint8_t hdr[14] = {
+        XBEE_TX_REQUEST,            // [0]  frame type
+        fid,                        // [1]  frame ID
+        0x00, 0x00, 0x00, 0x00,     // [2-5]  64-bit dest high
+        0x00, 0x00, 0xFF, 0xFF,     // [6-9]  64-bit dest low (broadcast)
+        0xFF, 0xFE,                 // [10-11] 16-bit dest (broadcast)
+        0x00,                       // [12] broadcast radius
+        0x00                        // [13] options
+    };
+
+    // Checksum = 0xFF - (sum of all frame data bytes)
+    uint8_t cksum = 0;
+    for (int i = 0; i < 14; i++) cksum += hdr[i];
+    for (size_t i = 0; i < len; i++) cksum += (uint8_t)payload[i];
+    cksum = 0xFF - cksum;
+
+    // Write frame
+    xbeeSerial.write(XBEE_START_DELIM);
+    xbeeSerial.write((uint8_t)(frameDataLen >> 8));   // length MSB
+    xbeeSerial.write((uint8_t)(frameDataLen & 0xFF)); // length LSB
+    xbeeSerial.write(hdr, 14);                        // frame header
+    xbeeSerial.write((const uint8_t*)payload, len);   // RF data
+    xbeeSerial.write(cksum);                          // checksum
+    xbeeSerial.flush();
+
+    return fid;
+}
+
 void xbeeSend(const String& json) {
-    xbeeSerial.println(json);
+    xbeeSendBroadcast(json.c_str(), json.length());
     Serial.printf("[XBEE-TX] %s\n", json.c_str());
 }
 
@@ -798,6 +850,78 @@ void handleXBeeData(const String& line) {
     }
     else {
         Serial.printf("[XBEE] Unknown command: %s\n", cmd);
+    }
+}
+
+// ========================================
+// XBee API mode 1 receive state machine
+// ========================================
+void xbeeProcessIncoming() {
+    while (xbeeSerial.available()) {
+        uint8_t b = xbeeSerial.read();
+
+        switch (rxState) {
+        case WAIT_DELIM:
+            if (b == XBEE_START_DELIM) rxState = GOT_LEN_HI;
+            break;
+
+        case GOT_LEN_HI:
+            rxFrameLen = (uint16_t)b << 8;
+            rxState = GOT_LEN_LO;
+            break;
+
+        case GOT_LEN_LO:
+            rxFrameLen |= b;
+            rxIdx = 0;
+            rxChecksum = 0;
+            rxState = (rxFrameLen > 0 && rxFrameLen <= XBEE_MAX_FRAME)
+                      ? READING_DATA : WAIT_DELIM;
+            break;
+
+        case READING_DATA:
+            rxFrame[rxIdx++] = b;
+            rxChecksum += b;
+            if (rxIdx >= rxFrameLen) rxState = GOT_CHECKSUM;
+            break;
+
+        case GOT_CHECKSUM:
+            rxChecksum += b;
+            if (rxChecksum == 0xFF) {
+                // Valid frame
+                uint8_t frameType = rxFrame[0];
+
+                if (frameType == XBEE_RX_PACKET && rxFrameLen > 12) {
+                    // 0x90 Receive Packet:
+                    //   [0]     0x90
+                    //   [1-8]   64-bit source address
+                    //   [9-10]  16-bit source address
+                    //   [11]    receive options
+                    //   [12..]  RF data (the JSON payload)
+                    size_t rfLen = rxFrameLen - 12;
+
+                    // Strip trailing newline/CR if present
+                    while (rfLen > 0 && (rxFrame[12 + rfLen - 1] == '\n'
+                                      || rxFrame[12 + rfLen - 1] == '\r'))
+                        rfLen--;
+
+                    if (rfLen > 0) {
+                        rxFrame[12 + rfLen] = '\0';
+                        handleXBeeData(String((const char*)&rxFrame[12]));
+                    }
+                }
+                else if (frameType == XBEE_TX_STATUS && rxFrameLen >= 7) {
+                    // 0x8B Transmit Status — check delivery result
+                    uint8_t delivery = rxFrame[5];
+                    if (delivery != 0) {
+                        Serial.printf("[XBEE] TX delivery failed (0x%02X)\n", delivery);
+                    }
+                }
+            } else {
+                Serial.println("[XBEE] Frame checksum error");
+            }
+            rxState = WAIT_DELIM;
+            break;
+        }
     }
 }
 
@@ -1180,9 +1304,7 @@ void setup() {
     Serial.begin(115200);
     Serial.println("\n\nHopFog Node – Range Extender");
     Serial.println("============================");
-
-    // Pre-reserve XBee buffer for large SYNC_DATA payloads
-    xbeeBuffer.reserve(XBEE_BUFFER_RESERVE);
+    Serial.println("[XBEE] Using API mode 1 (binary framed packets)");
 
 #ifdef ARDUINO_ARCH_ESP32
     Serial.println("[BOARD] ESP32-CAM (AI-Thinker)");
@@ -1272,19 +1394,8 @@ void loop() {
     dnsServer.processNextRequest();
     server.handleClient();
 
-    // ---- XBee receive ----
-    while (xbeeSerial.available()) {
-        char c = xbeeSerial.read();
-        if (c == '\n') {
-            xbeeBuffer.trim();
-            if (xbeeBuffer.length() > 0) {
-                handleXBeeData(xbeeBuffer);
-            }
-            xbeeBuffer = "";
-        } else {
-            xbeeBuffer += c;
-        }
-    }
+    // ---- XBee receive (API mode 1 frame parser) ----
+    xbeeProcessIncoming();
 
     unsigned long now = millis();
 
