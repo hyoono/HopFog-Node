@@ -19,7 +19,7 @@ The HopFog Node acts as a **router / range extender** for the HopFog network:
 - Exposes the same **REST API endpoints** as hopfog.com so the mobile app and admin tools work seamlessly
 - Stores data locally (**SD card** on ESP32-CAM, **LittleFS** on D1 Mini)
 - **No web interface** – purely headless JSON API
-- Auto-registers with the admin and sends periodic heartbeats
+- Auto-registers with the admin on startup (retries every 10 s until acknowledged) and sends periodic heartbeats
 - Relays messages and fog-node registrations back to the admin
 
 ## Hardware Requirements

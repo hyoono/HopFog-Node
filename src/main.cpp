@@ -66,6 +66,9 @@
 #ifndef SYNC_INTERVAL_MS
   #define SYNC_INTERVAL_MS 60000
 #endif
+#ifndef REGISTER_RETRY_MS
+  #define REGISTER_RETRY_MS 10000
+#endif
 
 // ── WiFi Access Point defaults ──────────────────────────────────
 #ifndef AP_SSID
@@ -143,6 +146,10 @@ const char* ANNOUNCEMENTS_FILE = "/hopfog/announcements.json";
 // Timing
 unsigned long lastHeartbeat = 0;
 unsigned long lastSync      = 0;
+unsigned long lastRegister  = 0;
+
+// Registration state – retry REGISTER until admin ACKs
+bool registeredWithAdmin = false;
 
 // XBee receive buffer (pre-reserve for large SYNC_DATA payloads)
 String xbeeBuffer = "";
@@ -674,7 +681,12 @@ void handleXBeeData(const String& line) {
         Serial.println("[XBEE] Admin responded to heartbeat");
     }
     else if (command == "REGISTER_ACK") {
-        Serial.println("[XBEE] Registered with admin successfully");
+        if (!registeredWithAdmin) {
+            registeredWithAdmin = true;
+            Serial.println("[XBEE] Registered with admin successfully");
+            // Trigger immediate data sync after first registration
+            xbeeRequestSync();
+        }
     }
     else if (command == "SYNC_DATA") {
         int synced = 0;
@@ -1246,10 +1258,9 @@ void setup() {
     server.begin();
     Serial.println("[HTTP] API server started");
 
-    // Register with admin via XBee
-    if (WiFi.status() == WL_CONNECTED) {
-        xbeeRegister();
-    }
+    // Send first REGISTER attempt via XBee (retries happen in loop)
+    xbeeRegister();
+    lastRegister = millis();
 
     Serial.println("============================\n");
 }
@@ -1276,6 +1287,16 @@ void loop() {
     }
 
     unsigned long now = millis();
+
+    // ---- Registration retry (until admin ACKs) ----
+    if (!registeredWithAdmin) {
+        if (now - lastRegister >= REGISTER_RETRY_MS) {
+            lastRegister = now;
+            Serial.println("[XBEE] Retrying REGISTER with admin...");
+            xbeeRegister();
+        }
+        return;  // don't heartbeat/sync until registered
+    }
 
     // ---- Heartbeat ----
     if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {

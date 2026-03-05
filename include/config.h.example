@@ -37,6 +37,10 @@
 // Data sync interval in milliseconds (default 60 s)
 // #define SYNC_INTERVAL_MS 60000
 
+// Registration retry interval in milliseconds (default 10 s)
+// Node retries REGISTER until admin responds with REGISTER_ACK
+// #define REGISTER_RETRY_MS 10000
+
 // ── WiFi Access Point (for mobile clients) ─────────────────────
 // The node creates a WiFi hotspot so mobile phones can connect.
 // A built-in DNS server resolves the domain to this node's IP,
