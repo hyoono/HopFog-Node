@@ -739,19 +739,23 @@ void handleXBeeData(const String& line) {
         }
     }
     else if (command == "RELAY_CHAT_MSG") {
-        // Admin relays a chat message from a mobile user on the admin side
-        int convId   = doc["conversation_id"] | doc["params"]["conversation_id"] | 0;
-        int senderId = doc["sender_id"]       | doc["params"]["sender_id"]       | 0;
-        const char* text = doc["message_text"] | doc["params"]["message_text"];
-        if (!text) text = doc["params"]["message"];
+        // Admin relays a chat message from a mobile user on the admin side.
+        // Fields are nested under "params" (consistent with all other commands).
+        JsonObject p = doc["params"];
+        int convId   = p["conversation_id"] | 0;
+        int senderId = p["sender_id"]       | 0;
+        const char* text = p["message_text"];
+        if (!text) text = p["message"];
         if (convId > 0 && senderId > 0 && text) {
             addChatMessage(convId, senderId, String(text));
             Serial.println("[XBEE] Chat message relayed from admin");
         }
     }
     else if (command == "SOS_ALERT") {
-        // Admin relays an SOS alert
-        int userId = doc["user_id"] | doc["params"]["user_id"] | 0;
+        // Admin relays an SOS alert.
+        // Fields are nested under "params" (consistent with all other commands).
+        JsonObject p = doc["params"];
+        int userId = p["user_id"] | 0;
         if (userId > 0) {
             int convId = findOrCreateSosConversation(userId);
             Serial.printf("[XBEE] SOS alert for user %d (conv %d)\n", userId, convId);
