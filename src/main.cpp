@@ -1295,23 +1295,23 @@ void loop() {
             Serial.println("[XBEE] Retrying REGISTER with admin...");
             xbeeRegister();
         }
-        return;  // don't heartbeat/sync until registered
     }
 
-    // ---- Heartbeat ----
-    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
-        lastHeartbeat = now;
-        if (WiFi.status() == WL_CONNECTED) {
-            xbeeHeartbeat();
-        } else {
-            WiFi.mode(WIFI_AP_STA);
-            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    // ---- Heartbeat & Sync (only after registration confirmed) ----
+    if (registeredWithAdmin) {
+        if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+            lastHeartbeat = now;
+            if (WiFi.status() == WL_CONNECTED) {
+                xbeeHeartbeat();
+            } else {
+                WiFi.mode(WIFI_AP_STA);
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+            }
         }
-    }
 
-    // ---- Periodic sync ----
-    if (now - lastSync >= SYNC_INTERVAL_MS) {
-        lastSync = now;
-        xbeeRequestSync();
+        if (now - lastSync >= SYNC_INTERVAL_MS) {
+            lastSync = now;
+            xbeeRequestSync();
+        }
     }
 }
