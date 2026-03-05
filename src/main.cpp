@@ -157,6 +157,8 @@ bool registeredWithAdmin = false;
 #define XBEE_RX_PACKET    0x90   // Receive Packet frame type
 #define XBEE_TX_STATUS    0x8B   // Transmit Status frame type
 #define XBEE_MAX_FRAME    512    // max frame data buffer
+#define XBEE_RX_HDR_SIZE  12     // 0x90 header: type(1) + src64(8) + src16(2) + options(1)
+#define XBEE_TX_HDR_SIZE  14     // 0x10 header: type(1) + id(1) + dst64(8) + dst16(2) + radius(1) + options(1)
 
 // API frame receive state machine
 enum RxState { WAIT_DELIM, GOT_LEN_HI, GOT_LEN_LO, READING_DATA, GOT_CHECKSUM };
@@ -611,13 +613,18 @@ void saveStats() {
 // Build and send a 0x10 Transmit Request frame (broadcast)
 // Frame: 0x7E | LenHi LenLo | 0x10 FrameID Dest64[8] Dest16[2] Radius Options | payload | Checksum
 uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
-    if (len == 0 || len > XBEE_MAX_FRAME - 14) return 0;
+    if (len == 0 || len > XBEE_MAX_FRAME - XBEE_TX_HDR_SIZE) {
+        Serial.printf("[XBEE] TX payload too large (%d bytes, max %d)\n",
+                      len, XBEE_MAX_FRAME - XBEE_TX_HDR_SIZE);
+        return 0;
+    }
 
-    uint16_t frameDataLen = 14 + len;
+    uint16_t frameDataLen = XBEE_TX_HDR_SIZE + len;
+    // Frame ID 0 disables TX status responses per XBee spec; keep IDs 1-255
     if (++frameIdCounter == 0) frameIdCounter = 1;
     uint8_t fid = frameIdCounter;
 
-    uint8_t hdr[14] = {
+    uint8_t hdr[XBEE_TX_HDR_SIZE] = {
         XBEE_TX_REQUEST,            // [0]  frame type
         fid,                        // [1]  frame ID
         0x00, 0x00, 0x00, 0x00,     // [2-5]  64-bit dest high
@@ -629,7 +636,7 @@ uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
 
     // Checksum = 0xFF - (sum of all frame data bytes)
     uint8_t cksum = 0;
-    for (int i = 0; i < 14; i++) cksum += hdr[i];
+    for (int i = 0; i < XBEE_TX_HDR_SIZE; i++) cksum += hdr[i];
     for (size_t i = 0; i < len; i++) cksum += (uint8_t)payload[i];
     cksum = 0xFF - cksum;
 
@@ -637,7 +644,7 @@ uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
     xbeeSerial.write(XBEE_START_DELIM);
     xbeeSerial.write((uint8_t)(frameDataLen >> 8));   // length MSB
     xbeeSerial.write((uint8_t)(frameDataLen & 0xFF)); // length LSB
-    xbeeSerial.write(hdr, 14);                        // frame header
+    xbeeSerial.write(hdr, XBEE_TX_HDR_SIZE);          // frame header
     xbeeSerial.write((const uint8_t*)payload, len);   // RF data
     xbeeSerial.write(cksum);                          // checksum
     xbeeSerial.flush();
@@ -874,8 +881,12 @@ void xbeeProcessIncoming() {
             rxFrameLen |= b;
             rxIdx = 0;
             rxChecksum = 0;
-            rxState = (rxFrameLen > 0 && rxFrameLen <= XBEE_MAX_FRAME)
-                      ? READING_DATA : WAIT_DELIM;
+            if (rxFrameLen > 0 && rxFrameLen <= XBEE_MAX_FRAME) {
+                rxState = READING_DATA;
+            } else {
+                Serial.printf("[XBEE] Invalid frame length %d, ignoring\n", rxFrameLen);
+                rxState = WAIT_DELIM;
+            }
             break;
 
         case READING_DATA:
@@ -890,27 +901,27 @@ void xbeeProcessIncoming() {
                 // Valid frame
                 uint8_t frameType = rxFrame[0];
 
-                if (frameType == XBEE_RX_PACKET && rxFrameLen > 12) {
+                if (frameType == XBEE_RX_PACKET && rxFrameLen > XBEE_RX_HDR_SIZE) {
                     // 0x90 Receive Packet:
-                    //   [0]     0x90
-                    //   [1-8]   64-bit source address
-                    //   [9-10]  16-bit source address
-                    //   [11]    receive options
-                    //   [12..]  RF data (the JSON payload)
-                    size_t rfLen = rxFrameLen - 12;
+                    //   [0]       0x90
+                    //   [1-8]     64-bit source address
+                    //   [9-10]    16-bit source address
+                    //   [11]      receive options
+                    //   [12..]    RF data (the JSON payload)
+                    size_t rfLen = rxFrameLen - XBEE_RX_HDR_SIZE;
 
                     // Strip trailing newline/CR if present
-                    while (rfLen > 0 && (rxFrame[12 + rfLen - 1] == '\n'
-                                      || rxFrame[12 + rfLen - 1] == '\r'))
+                    while (rfLen > 0 && (rxFrame[XBEE_RX_HDR_SIZE + rfLen - 1] == '\n'
+                                      || rxFrame[XBEE_RX_HDR_SIZE + rfLen - 1] == '\r'))
                         rfLen--;
 
                     if (rfLen > 0) {
-                        rxFrame[12 + rfLen] = '\0';
-                        handleXBeeData(String((const char*)&rxFrame[12]));
+                        rxFrame[XBEE_RX_HDR_SIZE + rfLen] = '\0';
+                        handleXBeeData(String((const char*)&rxFrame[XBEE_RX_HDR_SIZE]));
                     }
                 }
                 else if (frameType == XBEE_TX_STATUS && rxFrameLen >= 7) {
-                    // 0x8B Transmit Status — check delivery result
+                    // 0x8B Transmit Status — byte [5] is delivery status
                     uint8_t delivery = rxFrame[5];
                     if (delivery != 0) {
                         Serial.printf("[XBEE] TX delivery failed (0x%02X)\n", delivery);
