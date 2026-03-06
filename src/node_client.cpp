@@ -2,6 +2,7 @@
 #include "config.h"
 #include "xbee_comm.h"
 #include "sd_storage.h"
+#include <WiFi.h>
 
 static NodeState state = STATE_UNREGISTERED;
 static unsigned long lastRegisterMs  = 0;
