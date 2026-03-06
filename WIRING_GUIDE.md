@@ -18,39 +18,41 @@ This guide covers wiring for both supported boards:
 
 ## 1. ESP32-CAM ↔ XBee Wiring
 
-The node uses **Serial2** (UART2) re-mapped to GPIO 13 / GPIO 12.
+The node uses **Serial2** (UART2) re-mapped to GPIO 12 (RX) / GPIO 13 (TX).
+This matches the admin (HopFog-Web) convention so both ESP32-CAMs can be
+wired identically.
 
 > **Why not GPIO 32 / 33?** On the AI-Thinker ESP32-CAM, GPIO 32 is
 > the camera PWDN pin and GPIO 33 drives the on-board red LED. Neither
-> is freely available for general-purpose serial I/O. GPIO 13 and
-> GPIO 12 are free when the SD card runs in 1-bit mode.
+> is freely available for general-purpose serial I/O. GPIO 12 and
+> GPIO 13 are free when the SD card runs in 1-bit mode.
 
 ```
 ESP32-CAM               XBee Module
 =========               ===========
-GPIO 13  (RX) ◄──────── DOUT (TX)
-GPIO 12  (TX) ────────► DIN  (RX)
-GND           ────────── GND
-3.3V          ────────── VCC (3.3V)
+GPIO 13  (TX) ────────► DIN  (RX)   (pin 3)
+GPIO 12  (RX) ◄──────── DOUT (TX)   (pin 2)
+GND           ────────── GND         (pin 10)
+3.3V          ────────── VCC (3.3V)  (pin 1)
 ```
 
 | ESP32-CAM Pin | Direction | XBee Pin | Notes |
 |---------------|-----------|----------|-------|
-| GPIO 13 | Input | DOUT (TX) | ESP32 receives data from XBee |
-| GPIO 12 | Output | DIN (RX) | ESP32 sends data to XBee |
-| GND | — | GND | Common ground |
-| 3.3V | — | VCC | XBee requires 3.3 V (NOT 5 V) |
+| GPIO 13 | Output | DIN (RX, pin 3) | ESP32 sends data to XBee |
+| GPIO 12 | Input | DOUT (TX, pin 2) | ESP32 receives data from XBee |
+| GND | — | GND (pin 10) | Common ground |
+| 3.3V | — | VCC (pin 1) | XBee requires 3.3 V (NOT 5 V) |
 
 ### GPIO 12 Strapping Note
 
 GPIO 12 (MTDI) is a strapping pin that selects the flash voltage at
 boot. If it is **HIGH** at power-on the ESP32 expects 1.8 V flash,
 which will cause boot failures on modules with 3.3 V flash (like the
-ESP32-CAM). A UART TX idle state is HIGH, but since GPIO 12 is the
-*node's* TX output, not an input from the XBee, it stays under ESP32
-control and defaults to LOW at reset. If you still experience boot
-issues, disconnect the XBee during programming and reconnect
-afterwards.
+ESP32-CAM). GPIO 12 is now the *node's* RX input (idle HIGH driven by
+the XBee's DOUT). This may pull GPIO 12 HIGH at boot. If you
+experience boot issues, disconnect the XBee during programming and
+reconnect afterwards, or use `espefuse.py` to burn the flash voltage
+eFuse to 3.3 V.
 
 ### SD Card
 

@@ -6,7 +6,7 @@ A headless node that connects to the [HopFog-Web](https://github.com/hyoono/HopF
 
 | Platform | XBee Serial | Storage | Build / Run |
 |----------|------------|---------|-------------|
-| **ESP32-CAM** (AI-Thinker) | Hardware UART2 (GPIO 13 RX / GPIO 12 TX) | SD card (SD_MMC 1-bit) | `pio run -e esp32cam` |
+| **ESP32-CAM** (AI-Thinker) | Hardware UART2 (GPIO 12 RX / GPIO 13 TX) | SD card (SD_MMC 1-bit) | `pio run -e esp32cam` |
 | **Wemos D1 Mini** (ESP8266) | SoftwareSerial (D5 RX / D6 TX) | LittleFS (on-chip flash) | `pio run -e d1_mini` |
 
 ## Overview

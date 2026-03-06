@@ -89,14 +89,15 @@
 
 // ── Board-specific pin defaults ─────────────────────────────────
 #ifdef ARDUINO_ARCH_ESP32
-  // ESP32-CAM: GPIO 13 (RX) and GPIO 12 (TX) are free when
+  // ESP32-CAM: GPIO 12 (RX) and GPIO 13 (TX) are free when
   // SD_MMC runs in 1-bit mode. GPIO 32/33 are NOT available on
   // the AI-Thinker ESP32-CAM (used by camera / on-board LED).
+  // Pin assignment matches HopFog-Web admin convention.
   #ifndef XBEE_RX_PIN
-    #define XBEE_RX_PIN 13
+    #define XBEE_RX_PIN 12
   #endif
   #ifndef XBEE_TX_PIN
-    #define XBEE_TX_PIN 12
+    #define XBEE_TX_PIN 13
   #endif
 #elif defined(ARDUINO_ARCH_ESP8266)
   // Wemos D1 Mini: D5 = GPIO 14, D6 = GPIO 12

@@ -21,8 +21,8 @@
 #define XBEE_BAUD 9600
 
 // ── ESP32-CAM pin overrides (defaults: RX=13, TX=12) ───────────
-// #define XBEE_RX_PIN 13
-// #define XBEE_TX_PIN 12
+// #define XBEE_RX_PIN 12
+// #define XBEE_TX_PIN 13
 
 // ── Wemos D1 Mini pin overrides (defaults: RX=D5/14, TX=D6/12) ─
 // #define XBEE_RX_PIN 14
