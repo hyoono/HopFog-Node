@@ -26,6 +26,7 @@
   #include <WebServer.h>
   #include <SD_MMC.h>
   #include <DNSServer.h>
+  #include <driver/uart.h>
 #elif defined(ARDUINO_ARCH_ESP8266)
   #include <ESP8266WiFi.h>
   #include <ESP8266WebServer.h>
@@ -171,6 +172,9 @@ static uint8_t  rxChecksum  = 0;
 
 // API frame send counter
 static uint8_t frameIdCounter = 0;
+
+// Diagnostic byte counter for debugging serial reception
+static unsigned long nodeRxBytes = 0;
 
 // ========================================
 // Storage helpers (SD_MMC on ESP32-CAM,
@@ -867,6 +871,7 @@ void handleXBeeData(const String& line) {
 void xbeeProcessIncoming() {
     while (xbeeSerial.available()) {
         uint8_t b = xbeeSerial.read();
+        nodeRxBytes++;
 
         switch (rxState) {
         case WAIT_DELIM:
@@ -960,6 +965,7 @@ void handleStats() {
     doc["free_heap"]         = ESP.getFreeHeap();
     doc["uptime"]            = millis() / 1000;
     doc["storage_available"] = storageAvailable;
+    doc["xbee_rx_bytes"]     = nodeRxBytes;
     if (storageAvailable) {
         populateStorageStats(doc);
     }
@@ -1321,6 +1327,10 @@ void setup() {
 #ifdef ARDUINO_ARCH_ESP32
     Serial.println("[BOARD] ESP32-CAM (AI-Thinker)");
     xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, XBEE_RX_PIN, XBEE_TX_PIN);
+    // Explicitly reclaim GPIO pins for UART2 — this overrides any earlier
+    // pin matrix configuration that SD_MMC.begin() may have set
+    uart_set_pin(UART_NUM_2, XBEE_TX_PIN, XBEE_RX_PIN,
+                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 #elif defined(ARDUINO_ARCH_ESP8266)
     Serial.println("[BOARD] Wemos D1 Mini (ESP8266)");
     xbeeSerial.begin(XBEE_BAUD);
