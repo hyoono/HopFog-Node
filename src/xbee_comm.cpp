@@ -16,7 +16,11 @@ static uint8_t   rxFrame[XBEE_MAX_FRAME];
 static uint8_t   rxChecksum = 0;
 
 void xbeeInit() {
-    // UART0 on native GPIO 1/3 — just set baud rate, IOMUX handles routing
+    // Fully reset UART0 before reconfiguring.
+    // The SD card SPI init and WiFi driver may have affected UART0 state.
+    // Calling end() then begin() ensures a clean start.
+    xbeeSerial.end();
+    delay(10);
     xbeeSerial.begin(XBEE_BAUD);
 
     dbgprintf("[XBee] UART0 started (API mode 1) — TX=GPIO%d  RX=GPIO%d  baud=%d\n",
