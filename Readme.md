@@ -61,9 +61,10 @@ ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-W
 4. Admin replies with `SYNC_DATA` containing a full database dump.
 5. Node stores synced data on its SD card.
 6. Node creates its own WiFi AP for local mobile phones.
-7. Mobile phones connect to the node's WiFi and use the same API endpoints as the admin.
-8. Node relays user actions (send message, SOS, etc.) to admin via XBee.
-9. Node sends `HEARTBEAT` every 30 seconds; admin replies `PONG`.
+7. A DNS captive portal resolves **hopfog.com** (and all other hostnames) to the node's IP, so users can simply type `hopfog.com` in their browser.
+8. Mobile phones connect to the node's WiFi and use the same API endpoints as the admin.
+9. Node relays user actions (send message, SOS, etc.) to admin via XBee.
+10. Node sends `HEARTBEAT` every 30 seconds; admin replies `PONG`.
 
 ---
 
@@ -231,6 +232,7 @@ This opens a 115200-baud serial monitor. You should see output like:
 [SD] Card size: 7437MB
 [WiFi] Starting AP "HopFog-Node-01"
 [WiFi] AP running — IP: 192.168.4.1
+[DNS] Captive portal running — hopfog.com → 192.168.4.1
 [Web] Server started on port 80
 [XBee] UART2 init: TX=GPIO4 RX=GPIO12 baud=9600 (API mode 1)
 [Node] Client initialized — will start REGISTER cycle
@@ -397,7 +399,7 @@ Node                                     Admin
 
 ## REST API Reference
 
-The node serves these endpoints on its WiFi AP (default `192.168.4.1:80`). Mobile phones connect to the node's WiFi and hit these endpoints directly.
+The node serves these endpoints on its WiFi AP. Mobile phones connect to the node's WiFi and access the API via **http://hopfog.com** (or `192.168.4.1`). A built-in DNS captive portal resolves `hopfog.com` to the AP IP automatically.
 
 ### `GET /status`
 

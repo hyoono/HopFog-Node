@@ -10,6 +10,14 @@
 // ── Web Server ──────────────────────────────────────────────────────
 #define HTTP_PORT 80
 
+// ── DNS / Captive Portal ────────────────────────────────────────────
+// A local DNS server resolves ALL queries to the AP IP (192.168.4.1).
+// This lets mobile users type "hopfog.com" in a browser instead of
+// remembering the numeric IP.  Also triggers the OS captive-portal
+// detection on Android / iOS, popping up the login page automatically.
+#define DNS_PORT          53
+#define CAPTIVE_DOMAIN    "hopfog.com"
+
 // ── Node Identity ───────────────────────────────────────────────────
 #define NODE_ID       "node-01"
 #define DEVICE_NAME   "HopFog-Node-01"
