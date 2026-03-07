@@ -1,7 +1,6 @@
 #include "xbee_comm.h"
 #include "config.h"
 #include <driver/uart.h>
-#include <driver/gpio.h>
 
 static HardwareSerial& xbeeSerial = Serial2;
 static XBeeReceiveCB   rxCallback = nullptr;
@@ -16,19 +15,9 @@ static uint8_t   rxFrame[XBEE_MAX_FRAME];
 static uint8_t   rxChecksum = 0;
 
 void xbeeInit() {
-    // *** CRITICAL: On ESP32-CAM, SD_MMC.begin() claims GPIO 12/13 via ***
-    // *** IOMUX as HS2_DATA2/DATA3.  IOMUX takes priority over the     ***
-    // *** GPIO matrix that UART2 uses.  gpio_reset_pin() detaches the   ***
-    // *** pins from IOMUX so UART2 can claim them.                      ***
-#ifdef USE_SD_MMC
-    gpio_reset_pin(GPIO_NUM_12);
-    gpio_reset_pin(GPIO_NUM_13);
-    Serial.println("[XBee] Reset GPIO 12/13 from SD_MMC IOMUX");
-#endif
-
     xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, XBEE_RX_PIN, XBEE_TX_PIN);
 
-    // Explicitly route UART2 signals to these pins (belt-and-suspenders)
+    // Explicitly route UART2 signals to our chosen GPIO pins
     uart_set_pin(UART_NUM_2, XBEE_TX_PIN, XBEE_RX_PIN,
                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
