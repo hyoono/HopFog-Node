@@ -24,7 +24,7 @@ void xbeeInit() {
 }
 
 uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
-    if (len == 0 || len > XBEE_MAX_FRAME - 14) return 0;
+    if (len == 0 || len > XBEE_MAX_FRAME - 18) return 0;
 
     uint16_t frameDataLen = 14 + len;  // 14 bytes header + payload
     if (++frameIdCounter == 0) frameIdCounter = 1;
@@ -47,14 +47,23 @@ uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
     for (size_t i = 0; i < len; i++) cksum += (uint8_t)payload[i];
     cksum = 0xFF - cksum;
 
-    // Write the complete frame: [0x7E] [LenHi] [LenLo] [header] [payload] [checksum]
-    xbeeSerial.write(XBEE_START_DELIM);              // 0x7E
-    xbeeSerial.write((uint8_t)(frameDataLen >> 8));   // Length high byte
-    xbeeSerial.write((uint8_t)(frameDataLen & 0xFF)); // Length low byte
-    xbeeSerial.write(hdr, 14);                        // Header (14 bytes)
-    xbeeSerial.write((const uint8_t*)payload, len);   // Payload (JSON)
-    xbeeSerial.write(cksum);                          // Checksum
-    xbeeSerial.flush();                               // Wait for TX complete
+    // Build complete frame in a single buffer to prevent interleaving
+    // with ESP-IDF log output on UART0 (defense-in-depth)
+    size_t totalLen = 1 + 2 + 14 + len + 1;  // delim + length + hdr + payload + cksum
+    uint8_t frameBuf[XBEE_MAX_FRAME];
+    size_t pos = 0;
+    frameBuf[pos++] = XBEE_START_DELIM;               // 0x7E
+    frameBuf[pos++] = (uint8_t)(frameDataLen >> 8);    // Length high byte
+    frameBuf[pos++] = (uint8_t)(frameDataLen & 0xFF);  // Length low byte
+    memcpy(&frameBuf[pos], hdr, 14);                   // Header (14 bytes)
+    pos += 14;
+    memcpy(&frameBuf[pos], payload, len);              // Payload (JSON)
+    pos += len;
+    frameBuf[pos++] = cksum;                           // Checksum
+
+    // Single atomic write — prevents interleaving with ESP-IDF log output
+    xbeeSerial.write(frameBuf, totalLen);
+    xbeeSerial.flush();                                // Wait for TX complete
 
     dbgprintf("[XBee] TX frame ID=%d (%d bytes)\n", fid, (int)len);
     return fid;
