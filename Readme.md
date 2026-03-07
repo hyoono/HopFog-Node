@@ -87,15 +87,13 @@ ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-W
 ```
 ESP32-CAM            XBee Module
 ──────────           ───────────
-GPIO 3  (TX)  ─────► DIN   (pin 3)
-GPIO 12 (RX)  ◄───── DOUT  (pin 2)
+GPIO 1  (TX)  ─────► DIN   (pin 3)
+GPIO 3  (RX)  ◄───── DOUT  (pin 2)
 3.3V          ─────► VCC   (pin 1)
 GND           ─────► GND   (pin 10)
 ```
 
-> **⚠️ GPIO 3 is shared with USB-to-serial RX.** Disconnect the programming adapter before running with XBee connected. Serial Monitor **output** (TX on GPIO 1) still works normally.
-
-> **⚠️ GPIO 12 boot-strapping note:** GPIO 12 controls the flash voltage at boot. If the ESP32 fails to boot with XBee connected, disconnect XBee DOUT from GPIO 12 during power-on and reconnect after boot.
+> **⚠️ GPIO 1/3 are the USB programming pins.** Disconnect the XBee before uploading firmware. USB Serial Monitor is **not available** when XBee is connected — use the admin web serial monitor (`/admin/messaging/testing`) for debugging instead.
 
 ### SD Card
 
@@ -218,27 +216,11 @@ pio run -e esp32cam --target upload
 
 ### Serial Monitor
 
-```bash
-pio device monitor
-```
+USB Serial Monitor is **not available** when XBee is connected to GPIO 1/3 (the UART0 pins). All debug output is compiled out.
 
-This opens a 115200-baud serial monitor. You should see output like:
+To debug XBee communication, use the admin web serial monitor at `/admin/messaging/testing` — it shows TX/RX activity in real time.
 
-```
-========================================
-   HopFog-Node  ESP32 Firmware
-========================================
-[SD] SPI mode (HSPI) — mounted OK
-[SD] Card size: 7437MB
-[WiFi] Starting AP "HopFog-Node-01"
-[WiFi] AP running — IP: 192.168.4.1
-[DNS] Captive portal running — hopfog.com → 192.168.4.1
-[Web] Server started on port 80
-[XBee] UART1 started (API mode 1) — TX=GPIO3  RX=GPIO12  baud=9600
-[Node] Client initialized — will start REGISTER cycle
-[Node] Setup complete — starting REGISTER cycle
-[Node] Sent REGISTER
-```
+When XBee is **disconnected** (e.g., during development without XBee hardware), you can temporarily re-enable debug output by removing or commenting out the `XBEE_USES_UART0` define in `config.h` and rebuilding.
 
 ---
 

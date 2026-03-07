@@ -1,17 +1,8 @@
 #include "xbee_comm.h"
 #include "config.h"
-#include <driver/uart.h>
-#include <driver/gpio.h>
 
-// ESP32-CAM: use UART1 — UART2 defaults to GPIO 16/17 which are PSRAM pins
-// Generic ESP32: use UART2 (no PSRAM conflict)
-#ifdef ESP32CAM_SPI_SD
-  static HardwareSerial& xbeeSerial = Serial1;
-  #define XBEE_UART_NUM UART_NUM_1
-#else
-  static HardwareSerial& xbeeSerial = Serial2;
-  #define XBEE_UART_NUM UART_NUM_2
-#endif
+// Use UART0 (Serial) — native IOMUX on GPIO 1/3, most reliable
+static HardwareSerial& xbeeSerial = Serial;
 
 static XBeeReceiveCB   rxCallback = nullptr;
 static uint8_t         frameIdCounter = 0;
@@ -25,20 +16,11 @@ static uint8_t   rxFrame[XBEE_MAX_FRAME];
 static uint8_t   rxChecksum = 0;
 
 void xbeeInit() {
-    // Reset GPIO pins to ensure clean state — detaches from any
-    // previous peripheral (SPI, SD_MMC, UART0) before claiming for XBee
-    gpio_reset_pin((gpio_num_t)XBEE_TX_PIN);
-    gpio_reset_pin((gpio_num_t)XBEE_RX_PIN);
+    // UART0 on native GPIO 1/3 — just set baud rate, IOMUX handles routing
+    xbeeSerial.begin(XBEE_BAUD);
 
-    xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, XBEE_RX_PIN, XBEE_TX_PIN);
-
-    // Explicitly route UART signals to our chosen GPIO pins
-    uart_set_pin(XBEE_UART_NUM, XBEE_TX_PIN, XBEE_RX_PIN,
-                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-
-    Serial.printf("[XBee] UART%d started (API mode 1) — TX=GPIO%d  RX=GPIO%d  baud=%d\n",
-                  (XBEE_UART_NUM == UART_NUM_1) ? 1 : 2,
-                  XBEE_TX_PIN, XBEE_RX_PIN, XBEE_BAUD);
+    dbgprintf("[XBee] UART0 started (API mode 1) — TX=GPIO%d  RX=GPIO%d  baud=%d\n",
+              XBEE_TX_PIN, XBEE_RX_PIN, XBEE_BAUD);
 }
 
 uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
@@ -74,7 +56,7 @@ uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
     xbeeSerial.write(cksum);                          // Checksum
     xbeeSerial.flush();                               // Wait for TX complete
 
-    Serial.printf("[XBee] TX frame ID=%d (%d bytes)\n", fid, (int)len);
+    dbgprintf("[XBee] TX frame ID=%d (%d bytes)\n", fid, (int)len);
     return fid;
 }
 
@@ -101,7 +83,7 @@ void xbeeProcessIncoming() {
             rxIdx = 0;
             rxChecksum = 0;
             if (rxFrameLen == 0 || rxFrameLen >= XBEE_MAX_FRAME) {
-                Serial.printf("[XBee] Invalid frame length %d\n", rxFrameLen);
+                dbgprintf("[XBee] Invalid frame length %d\n", rxFrameLen);
                 rxState = WAIT_DELIM;
             } else {
                 rxState = READING_DATA;
@@ -130,26 +112,26 @@ void xbeeProcessIncoming() {
 
                     if (rfLen > 0 && rfLen < XBEE_MAX_FRAME - 12) {
                         rxFrame[12 + rfLen] = '\0';  // null-terminate
-                        Serial.printf("[XBee] RX 0x90 (%d bytes): %.80s\n", (int)rfLen, rfData);
+                        dbgprintf("[XBee] RX 0x90 (%d bytes): %.80s\n", (int)rfLen, rfData);
                         if (rxCallback) rxCallback(rfData, rfLen);
                     }
                 } else if (frameType == XBEE_TX_STATUS && rxFrameLen >= 7) {
                     // 0x8B Transmit Status
                     uint8_t delivery = rxFrame[5];
                     if (delivery == 0) {
-                        Serial.printf("[XBee] TX status: OK (frame %d)\n", rxFrame[1]);
+                        dbgprintf("[XBee] TX status: OK (frame %d)\n", rxFrame[1]);
                     } else {
-                        Serial.printf("[XBee] TX status: FAILED 0x%02X (frame %d)\n",
+                        dbgprintf("[XBee] TX status: FAILED 0x%02X (frame %d)\n",
                                       delivery, rxFrame[1]);
                     }
                 } else if (frameType == XBEE_TX_REQUEST) {
                     // Self-echo — our own TX frame looping back. Ignore.
-                    Serial.println("[XBee] Self-echo (0x10) — ignored");
+                    dbgprintln("[XBee] Self-echo (0x10) — ignored");
                 } else {
-                    Serial.printf("[XBee] Unknown frame type 0x%02X\n", frameType);
+                    dbgprintf("[XBee] Unknown frame type 0x%02X\n", frameType);
                 }
             } else {
-                Serial.printf("[XBee] Checksum error (0x%02X != 0xFF)\n", rxChecksum);
+                dbgprintf("[XBee] Checksum error (0x%02X != 0xFF)\n", rxChecksum);
             }
             rxState = WAIT_DELIM;
             break;

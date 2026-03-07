@@ -29,9 +29,8 @@
 
 // ── SD Card (ESP32-CAM built-in slot — SPI mode) ────────────────────
 //
-// Uses SPI (NOT SD_MMC) to avoid GPIO 12/13 IOMUX conflict with UART2.
-// The SD_MMC peripheral permanently claims GPIO 12/13 even in 1-bit mode,
-// preventing XBee serial communication on those pins.
+// Uses SPI (NOT SD_MMC) to avoid GPIO conflicts.  SD_MMC permanently
+// claims GPIO 12/13 via IOMUX even in 1-bit mode.
 //
 // ESP32-CAM SD slot hardware wiring:
 //   CS   = GPIO 13 (was DAT3 in SDMMC mode)
@@ -55,23 +54,21 @@
 #define SD_MSGS_FILE        "/db/messages.json"
 
 // ── XBee S2C (ZigBee) ──────────────────────────────────────────────
-// Uses UART1 (Serial1) — UART2 defaults to GPIO 16/17 which are
-// PSRAM pins on ESP32-CAM, so we avoid it entirely.
-// UART0 (Serial) stays free for Serial Monitor output.
+// Uses UART0 (Serial) on native IOMUX pins — most reliable option.
+//   GPIO 1 = U0TXD → XBee DIN  (pin 3 on XBee module)
+//   GPIO 3 = U0RXD ← XBee DOUT (pin 2 on XBee module)
+//   IOMUX native — no GPIO matrix remapping, no conflicts.
 //
-// ESP32-CAM pin assignment:
-//   GPIO 3  = XBee TX (→ DIN)  — repurposed from U0RXD; Serial Monitor
-//             output (TX on GPIO 1) still works, but Serial input is lost.
-//   GPIO 12 = XBee RX (← DOUT) — was SD_MMC DAT2, now free in SPI mode
+// Trade-off: USB Serial Monitor is NOT available.
+// All debug output is compiled out via dbgprintf/dbgprintln macros.
+// Use the admin web serial monitor (/admin/messaging/testing) instead.
 //
-// ⚠️ GPIO 3 is shared with the USB-to-serial RX line.
-//    Disconnect the programming adapter before running with XBee.
-//
-// Note: GPIO 12 is a boot-strapping pin. If the ESP32 fails to boot
-//       with XBee connected, disconnect XBee DOUT during power-on.
+// ⚠️ GPIO 1/3 are the USB programming pins.
+//    Disconnect the XBee before uploading firmware.
 #define XBEE_BAUD       9600
-#define XBEE_TX_PIN     3     // ESP32 TX → XBee DIN  (repurposed U0RXD)
-#define XBEE_RX_PIN     12    // ESP32 RX ← XBee DOUT (free in SPI SD mode)
+#define XBEE_TX_PIN     1     // U0TXD → XBee DIN (IOMUX native)
+#define XBEE_RX_PIN     3     // U0RXD ← XBee DOUT (IOMUX native)
+#define XBEE_USES_UART0 1     // UART0 is XBee — serial debug disabled
 
 // ── Timing ─────────────────────────────────────────────────────────
 #define REGISTER_INTERVAL_MS   10000
@@ -83,6 +80,17 @@
   #define JSON_DOC_SIZE  16384
 #else
   #define JSON_DOC_SIZE   8192
+#endif
+
+// ── Debug output macros ──────────────────────────────────────────────
+// Disabled when UART0 is used for XBee (no USB Serial Monitor available).
+// All debug output goes through these macros so the compiler can strip it.
+#ifdef XBEE_USES_UART0
+  #define dbgprintf(...)     do {} while(0)
+  #define dbgprintln(x)      do {} while(0)
+#else
+  #define dbgprintf(...)     Serial.printf(__VA_ARGS__)
+  #define dbgprintln(x)      Serial.println(x)
 #endif
 
 #endif // CONFIG_H
