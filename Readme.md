@@ -87,19 +87,19 @@ ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-W
 ```
 ESP32-CAM            XBee Module
 ──────────           ───────────
-GPIO 4  (TX)  ─────► DIN   (pin 3)
+GPIO 3  (TX)  ─────► DIN   (pin 3)
 GPIO 12 (RX)  ◄───── DOUT  (pin 2)
 3.3V          ─────► VCC   (pin 1)
 GND           ─────► GND   (pin 10)
 ```
 
-> **Note:** GPIO 4 is also the ESP32-CAM flash LED. It will flicker during XBee TX — this is normal and harmless.
+> **⚠️ GPIO 3 is shared with USB-to-serial RX.** Disconnect the programming adapter before running with XBee connected. Serial Monitor **output** (TX on GPIO 1) still works normally.
 
 > **⚠️ GPIO 12 boot-strapping note:** GPIO 12 controls the flash voltage at boot. If the ESP32 fails to boot with XBee connected, disconnect XBee DOUT from GPIO 12 during power-on and reconnect after boot.
 
 ### SD Card
 
-The ESP32-CAM's built-in SD card slot is accessed via **SPI mode** (HSPI bus), not SD_MMC. This avoids the IOMUX conflict where SD_MMC permanently claims GPIO 12/13, which would block XBee UART2 communication. No external wiring needed — just insert a FAT32-formatted micro SD card.
+The ESP32-CAM's built-in SD card slot is accessed via **SPI mode** (HSPI bus), not SD_MMC. This avoids the IOMUX conflict where SD_MMC permanently claims GPIO 12/13, which would block XBee serial communication. No external wiring needed — just insert a FAT32-formatted micro SD card.
 
 SPI pin mapping (fixed by ESP32-CAM hardware):
 
@@ -234,7 +234,7 @@ This opens a 115200-baud serial monitor. You should see output like:
 [WiFi] AP running — IP: 192.168.4.1
 [DNS] Captive portal running — hopfog.com → 192.168.4.1
 [Web] Server started on port 80
-[XBee] UART2 init: TX=GPIO4 RX=GPIO12 baud=9600 (API mode 1)
+[XBee] UART1 started (API mode 1) — TX=GPIO3  RX=GPIO12  baud=9600
 [Node] Client initialized — will start REGISTER cycle
 [Node] Setup complete — starting REGISTER cycle
 [Node] Sent REGISTER
@@ -275,7 +275,7 @@ All configuration is in `include/config.h`. Edit before building:
 #define DEVICE_NAME   "HopFog-Node-01"    // Human-readable name
 
 // ── XBee Pins ───────────────────────────────────────────
-#define XBEE_TX_PIN   4                   // ESP32 TX → XBee DIN (GPIO 4)
+#define XBEE_TX_PIN   3                   // ESP32 TX → XBee DIN (GPIO 3)
 #define XBEE_RX_PIN   12                  // ESP32 RX ← XBee DOUT
 
 // ── Timing ──────────────────────────────────────────────
@@ -613,9 +613,9 @@ The XBee mesh handles multi-hop routing transparently — nodes do not need line
 
 The ESP32-CAM's SD card slot can be accessed via either SD_MMC or SPI. The SD_MMC peripheral permanently claims GPIO 12 and 13 via **IOMUX** (as HS2_DATA2/HS2_DATA3), even in 1-bit mode. IOMUX has hardware priority over the GPIO matrix that UART2 uses — so XBee RX on GPIO 12 fails silently.
 
-**Solution (already applied):** The firmware uses **SPI mode** (`SD.begin()` with the HSPI bus) instead of `SD_MMC.begin()`. SPI mode uses only GPIO 13 (CS), 14 (CLK), 2 (MISO), and 15 (MOSI), leaving GPIO 4 and 12 completely free for XBee UART2.
+**Solution (already applied):** The firmware uses **SPI mode** (`SD.begin()` with the HSPI bus) instead of `SD_MMC.begin()`. SPI mode uses only GPIO 13 (CS), 14 (CLK), 2 (MISO), and 15 (MOSI), leaving GPIO 3 and 12 free for XBee UART1.
 
-XBee TX was also moved from GPIO 13 → GPIO 4 since GPIO 13 is now the SD SPI chip-select pin.
+XBee TX was also moved from GPIO 13 → GPIO 3 since GPIO 13 is now the SD SPI chip-select pin (and GPIO 4 is the flash LED).
 
 ### Debugging Checklist
 
@@ -630,7 +630,7 @@ XBee TX was also moved from GPIO 13 → GPIO 4 since GPIO 13 is now the SD SPI c
 Open the serial monitor (`pio device monitor`) and look for:
 
 ```
-[XBee] UART2 init: TX=GPIO4 RX=GPIO12 baud=9600 (API mode 1)
+[XBee] UART1 started (API mode 1) — TX=GPIO3  RX=GPIO12  baud=9600
 [Node] Sent REGISTER
 ```
 
@@ -647,7 +647,7 @@ If `[Node] Sent REGISTER` does not appear every 10 seconds, the main loop or tim
 
 - On the admin, click "Send Test Message".
 - Node serial monitor should show: `[XBee] RX 0x90 (...bytes): {"cmd":"BROADCAST_MSG",...}`
-- If node shows nothing, check the wiring (GPIO 4 → DIN, GPIO 12 ← DOUT) and verify SPI SD mode is active.
+- If node shows nothing, check the wiring (GPIO 3 → DIN, GPIO 12 ← DOUT) and verify SPI SD mode is active.
 
 #### 5. Full handshake
 

@@ -1,8 +1,18 @@
 #include "xbee_comm.h"
 #include "config.h"
 #include <driver/uart.h>
+#include <driver/gpio.h>
 
-static HardwareSerial& xbeeSerial = Serial2;
+// ESP32-CAM: use UART1 — UART2 defaults to GPIO 16/17 which are PSRAM pins
+// Generic ESP32: use UART2 (no PSRAM conflict)
+#ifdef ESP32CAM_SPI_SD
+  static HardwareSerial& xbeeSerial = Serial1;
+  #define XBEE_UART_NUM UART_NUM_1
+#else
+  static HardwareSerial& xbeeSerial = Serial2;
+  #define XBEE_UART_NUM UART_NUM_2
+#endif
+
 static XBeeReceiveCB   rxCallback = nullptr;
 static uint8_t         frameIdCounter = 0;
 
@@ -15,13 +25,19 @@ static uint8_t   rxFrame[XBEE_MAX_FRAME];
 static uint8_t   rxChecksum = 0;
 
 void xbeeInit() {
+    // Reset GPIO pins to ensure clean state — detaches from any
+    // previous peripheral (SPI, SD_MMC, UART0) before claiming for XBee
+    gpio_reset_pin((gpio_num_t)XBEE_TX_PIN);
+    gpio_reset_pin((gpio_num_t)XBEE_RX_PIN);
+
     xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, XBEE_RX_PIN, XBEE_TX_PIN);
 
-    // Explicitly route UART2 signals to our chosen GPIO pins
-    uart_set_pin(UART_NUM_2, XBEE_TX_PIN, XBEE_RX_PIN,
+    // Explicitly route UART signals to our chosen GPIO pins
+    uart_set_pin(XBEE_UART_NUM, XBEE_TX_PIN, XBEE_RX_PIN,
                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
-    Serial.printf("[XBee] UART2 init: TX=GPIO%d RX=GPIO%d baud=%d (API mode 1)\n",
+    Serial.printf("[XBee] UART%d started (API mode 1) — TX=GPIO%d  RX=GPIO%d  baud=%d\n",
+                  (XBEE_UART_NUM == UART_NUM_1) ? 1 : 2,
                   XBEE_TX_PIN, XBEE_RX_PIN, XBEE_BAUD);
 }
 

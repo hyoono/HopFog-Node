@@ -14,6 +14,10 @@ AsyncWebServer server(HTTP_PORT);
 DNSServer      dnsServer;
 
 void setup() {
+    // Disable ESP32-CAM flash LED immediately (GPIO 4 = flash LED transistor)
+    pinMode(FLASH_LED_PIN, OUTPUT);
+    digitalWrite(FLASH_LED_PIN, LOW);
+
     Serial.begin(115200);
     delay(500);
     Serial.println("\n========================================");
