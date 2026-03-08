@@ -16,11 +16,9 @@ static uint8_t   rxFrame[XBEE_MAX_FRAME];
 static uint8_t   rxChecksum = 0;
 
 void xbeeInit() {
-    // Fully reset UART0 before reconfiguring.
-    // The SD card SPI init and WiFi driver may have affected UART0 state.
-    // Calling end() then begin() ensures a clean start.
-    xbeeSerial.end();
-    delay(10);
+    // Just call begin(), no end() first.
+    // The working test project does NOT call Serial.end().
+    // Calling end() on an uninitialised Serial can leave UART0 in a bad state.
     xbeeSerial.begin(XBEE_BAUD);
 
     dbgprintf("[XBee] UART0 started (API mode 1) — TX=GPIO%d  RX=GPIO%d  baud=%d\n",
