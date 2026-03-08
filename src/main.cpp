@@ -56,7 +56,10 @@ void setup() {
     setupWebServer(server);
     server.begin();
 
-    // 7. Wait for XBee network — matches test project delay(3000)
+    // 7. Flush UART RX garbage from SD/WiFi init
+    xbeeFlushRx();
+
+    // 8. Wait for XBee network — matches test project delay(3000)
     delay(3000);
 
     dbgprintln("[Node] Setup complete — starting REGISTER cycle");
