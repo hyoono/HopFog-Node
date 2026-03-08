@@ -399,4 +399,26 @@ void registerApiHandlers(AsyncWebServer& server) {
         request->send(200, "application/json",
                       "{\"success\":true,\"message\":\"Password changed\"}");
     });
+
+    // ── GET /api/xbee/status — XBee diagnostic counters ─────────────
+    server.on("/api/xbee/status", HTTP_GET, [](AsyncWebServerRequest* request) {
+        const XBeeStats& s = xbeeGetStats();
+        JsonDocument doc;
+        doc["totalRxBytes"]     = s.totalRxBytes;
+        doc["totalTxBytes"]     = s.totalTxBytes;
+        doc["rxFramesParsed"]   = s.rxFramesParsed;
+        doc["rxDataFrames"]     = s.rxDataFrames;
+        doc["txFramesSent"]     = s.txFramesSent;
+        doc["txStatusOK"]       = s.txStatusOK;
+        doc["txStatusFail"]     = s.txStatusFail;
+        doc["checksumErrors"]   = s.checksumErrors;
+        doc["frameTimeouts"]    = s.frameTimeouts;
+        doc["modemStatusCount"] = s.modemStatusCount;
+        doc["lastModemStatus"]  = s.lastModemStatus;
+        doc["uptimeSeconds"]    = (int)(millis() / 1000);
+        doc["nodeState"]        = (int)nodeClientGetState();
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response);
+    });
 }
