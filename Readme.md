@@ -1,6 +1,6 @@
 # HopFog-Node
 
-ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-Web) mesh network. Each node joins the admin coordinator over XBee ZigBee RF, creates its own WiFi access point, and serves a mobile-app REST API locally — enabling offline-first communication in disaster or infrastructure-limited scenarios.
+ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-Web) network. The node connects to the admin coordinator over XBee ZigBee RF (2 XBee modules total — one coordinator, one router), creates its own WiFi access point, and serves a mobile-app REST API locally — enabling offline-first communication in disaster or infrastructure-limited scenarios.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-W
   - [Admin → Node Commands](#admin--node-commands)
   - [Command Flow](#command-flow)
 - [REST API Reference](#rest-api-reference)
-- [Multi-Node Deployment](#multi-node-deployment)
+- [Current Setup: Single Node](#current-setup-single-node)
 - [Troubleshooting](#troubleshooting)
   - [SD_MMC vs SPI SD (Why SPI?)](#sd_mmc-vs-spi-sd-why-spi)
   - [Debugging Checklist](#debugging-checklist)
@@ -33,21 +33,23 @@ ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-W
 
 ## Architecture Overview
 
+This is a **2-XBee-module setup**: one coordinator (admin) and one router (node).
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                   ADMIN  (HopFog-Web)                    │
-│  ESP32-CAM + XBee S2C Pro (Coordinator, AP=1, CE=1)      │
+│  ESP32-CAM + XBee S2C (Coordinator, AP=1, CE=1)         │
 │  WiFi AP "HopFog-Network"                                │
 │  Admin dashboard + mobile app API                        │
 │  SD card: users, broadcasts, messages, conversations     │
 └────────────────────────┬─────────────────────────────────┘
-                         │  XBee ZigBee RF
+                         │  XBee ZigBee RF (point-to-point)
                          │  API mode 1 binary frames
                          │  JSON payloads
 ┌────────────────────────┴─────────────────────────────────┐
 │                   NODE  (HopFog-Node)                     │
 │  ESP32-CAM + XBee S2C (Router, AP=1, CE=0)               │
-│  WiFi AP "HopFog-Node-XX"                                │
+│  WiFi AP "HopFog-Node-01"                                │
 │  Mobile app REST API (same endpoints as admin)           │
 │  SD card: synced copy of users, broadcasts, messages     │
 └──────────────────────────────────────────────────────────┘
@@ -70,13 +72,15 @@ ESP32-CAM fog-computing node for the [HopFog](https://github.com/hyoono/HopFog-W
 
 ## Hardware Requirements
 
-| Component | Description |
-|-----------|-------------|
-| AI-Thinker ESP32-CAM | Microcontroller with built-in micro SD card slot |
-| Digi XBee S2C or S2C Pro | ZigBee radio module |
-| XBee breakout board | For breadboard mounting |
-| Micro SD card | FAT32 formatted |
-| USB-to-serial programmer | FTDI or CP2102 for flashing |
+You need **2 XBee modules** total — one for the admin and one for the node.
+
+| Component | Qty | Description |
+|-----------|-----|-------------|
+| AI-Thinker ESP32-CAM | 2 | One for admin, one for node |
+| Digi XBee S2C or S2C Pro | 2 | One configured as Coordinator (admin), one as Router (node) |
+| XBee breakout board | 2 | For breadboard mounting |
+| Micro SD card | 2 | FAT32 formatted, one per ESP32-CAM |
+| USB-to-serial programmer | 1 | FTDI or CP2102 for flashing |
 
 ---
 
@@ -112,30 +116,30 @@ SPI pin mapping (fixed by ESP32-CAM hardware):
 
 ## XBee Module Configuration
 
-Configure each XBee module using Digi's [XCTU](https://www.digi.com/products/embedded-systems/digi-xbee/digi-xbee-tools/xctu) software **before** connecting it to the ESP32.
+Configure **both** XBee modules using Digi's [XCTU](https://www.digi.com/products/embedded-systems/digi-xbee/digi-xbee-tools/xctu) software **before** connecting them to the ESP32-CAMs. You need exactly 2 modules — one coordinator (admin) and one router (node).
 
-### Node XBee (Router)
+### Module 1: Admin XBee (Coordinator)
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
 | **AP** | `1` | API mode 1 (binary frames, no escaping) |
-| **CE** | `0` | Router (joins coordinator's network) |
+| **CE** | `1` | **Coordinator** — forms the network |
+| **ID** | `1234` | PAN ID — must match the node XBee |
+| **BD** | `3` | 9600 baud |
+
+### Module 2: Node XBee (Router)
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| **AP** | `1` | API mode 1 (binary frames, no escaping) |
+| **CE** | `0` | **Router** — joins the coordinator's network |
 | **ID** | `1234` | PAN ID — **must match the admin XBee** |
 | **BD** | `3` | 9600 baud |
 | **JV** | `1` | Join verification (router joins on power-up) |
 | **DH** | `0` | Destination address high (broadcast) |
 | **DL** | `FFFF` | Destination address low (broadcast) |
 
-### Admin XBee (Coordinator)
-
-| Parameter | Value |
-|-----------|-------|
-| **AP** | `1` |
-| **CE** | `1` (Coordinator) |
-| **ID** | `1234` (same PAN ID) |
-| **BD** | `3` (9600 baud) |
-
-**After writing settings, power-cycle the XBee before connecting to the ESP32.**
+**After writing settings, power-cycle both XBee modules before connecting them to the ESP32-CAMs.**
 
 ### Verifying XBee Association
 
@@ -248,25 +252,24 @@ All configuration is in `include/config.h`. Edit before building:
 
 ```cpp
 // ── WiFi Access Point ───────────────────────────────────
-#define AP_SSID       "HopFog-Node-01"   // Change for each node
+#define AP_SSID       "HopFog-Node-01"   // Node's WiFi network name
 #define AP_PASSWORD   "changeme123"       // Set a strong password
 #define AP_CHANNEL    6                   // Avoid channel 1 (admin)
 
 // ── Node Identity ───────────────────────────────────────
-#define NODE_ID       "node-01"           // Unique ID for this node
+#define NODE_ID       "node-01"           // Node identifier
 #define DEVICE_NAME   "HopFog-Node-01"    // Human-readable name
 
-// ── XBee Pins ───────────────────────────────────────────
-#define XBEE_TX_PIN   3                   // ESP32 TX → XBee DIN (GPIO 3)
-#define XBEE_RX_PIN   12                  // ESP32 RX ← XBee DOUT
+// ── XBee (UART0) ───────────────────────────────────────
+#define XBEE_TX_PIN   1                   // U0TXD → XBee DIN
+#define XBEE_RX_PIN   3                   // U0RXD ← XBee DOUT
+#define XBEE_BAUD     9600
 
 // ── Timing ──────────────────────────────────────────────
 #define REGISTER_INTERVAL_MS   10000      // REGISTER retry (ms)
 #define HEARTBEAT_INTERVAL_MS  30000      // HEARTBEAT interval (ms)
 #define SYNC_RETRY_MS          15000      // SYNC_REQUEST retry (ms)
 ```
-
-> **Important:** Each node in the mesh must have a unique `NODE_ID` and `AP_SSID`.
 
 ---
 
@@ -560,29 +563,22 @@ Change a user's password. Updates locally and relays to admin via XBee.
 
 ---
 
-## Multi-Node Deployment
+## Current Setup: Single Node
 
-Multiple nodes can be deployed with the same firmware. Each node needs:
+This firmware is configured for a **2-XBee-module setup**: one admin coordinator and one node router. The node identity is hardcoded in `include/config.h`:
 
-1. **Unique `NODE_ID` and `AP_SSID`** in `config.h`:
-   ```cpp
-   #define NODE_ID   "node-02"
-   #define AP_SSID   "HopFog-Node-02"
-   ```
+```cpp
+#define NODE_ID       "node-01"
+#define AP_SSID       "HopFog-Node-01"
+```
 
-2. **Its own XBee module** configured as a Router (`CE=0`) on the same PAN ID (`ID=1234`) as the admin Coordinator.
-
-3. **A separate micro SD card** formatted as FAT32.
-
-The XBee mesh handles multi-hop routing transparently — nodes do not need line-of-sight to the admin.
+The admin XBee (Coordinator, CE=1) and the node XBee (Router, CE=0) communicate point-to-point using broadcast frames on the same PAN ID (`ID=1234`).
 
 ```
-  ┌───────┐         ┌───────┐         ┌───────┐
-  │ Admin │◄──RF──►│Node-01│◄──RF──►│Node-02│
-  │ (Coord)│         │(Router)│         │(Router)│
-  └───────┘         └───────┘         └───────┘
-       ▲                                   │
-       └───────── multi-hop RF ────────────┘
+  ┌───────┐         ┌───────┐
+  │ Admin │◄──RF──►│Node-01│
+  │(Coord)│         │(Router)│
+  └───────┘         └───────┘
 ```
 
 ---
@@ -593,57 +589,60 @@ The XBee mesh handles multi-hop routing transparently — nodes do not need line
 
 **This was the #1 cause of "no XBee communication" on ESP32-CAM boards.**
 
-The ESP32-CAM's SD card slot can be accessed via either SD_MMC or SPI. The SD_MMC peripheral permanently claims GPIO 12 and 13 via **IOMUX** (as HS2_DATA2/HS2_DATA3), even in 1-bit mode. IOMUX has hardware priority over the GPIO matrix that UART2 uses — so XBee RX on GPIO 12 fails silently.
+The ESP32-CAM's SD card slot can be accessed via either SD_MMC or SPI. The SD_MMC peripheral permanently claims GPIO 12 and 13 via **IOMUX** (as HS2_DATA2/HS2_DATA3), even in 1-bit mode. Since the XBee uses UART0 (GPIO 1 TX, GPIO 3 RX), using SD_MMC can cause unexpected pin conflicts.
 
-**Solution (already applied):** The firmware uses **SPI mode** (`SD.begin()` with the HSPI bus) instead of `SD_MMC.begin()`. SPI mode uses only GPIO 13 (CS), 14 (CLK), 2 (MISO), and 15 (MOSI), leaving GPIO 3 and 12 free for XBee UART1.
-
-XBee TX was also moved from GPIO 13 → GPIO 3 since GPIO 13 is now the SD SPI chip-select pin (and GPIO 4 is the flash LED).
+**Solution (already applied):** The firmware uses **SPI mode** (`SD.begin()` with the HSPI bus) instead of `SD_MMC.begin()`. SPI mode uses only GPIO 13 (CS), 14 (CLK), 2 (MISO), and 15 (MOSI).
 
 ### Debugging Checklist
 
-#### 1. Verify XBee hardware
+#### 1. Verify XBee hardware (2 modules)
 
-- Power on both admin and node.
+- Power on both admin (coordinator) and node (router).
 - Check XBee **ASSOC** LED: blinking = searching, steady = joined.
-- In XCTU: read `AI` parameter on node XBee → must be `0x00`.
+- In XCTU: read `AI` parameter on the node XBee → must be `0x00`.
+- Verify both modules have the same PAN ID (`ID=1234`).
 
-#### 2. Verify ESP32 serial output
+#### 2. Verify XBee diagnostics via web API
 
-Open the serial monitor (`pio device monitor`) and look for:
+Connect to the node's WiFi AP (`HopFog-Node-01`) and browse to:
 
 ```
-[XBee] UART1 started (API mode 1) — TX=GPIO3  RX=GPIO12  baud=9600
-[Node] Sent REGISTER
+http://192.168.4.1/api/xbee/status
 ```
 
-If `[Node] Sent REGISTER` does not appear every 10 seconds, the main loop or timer is not running.
+Check these values:
+- `totalRxBytes > 0` — UART0 RX is working
+- `txStatusOK > 0` — XBee is responding to TX frames
+- `rxFramesParsed > 0` — Remote device data received
+
+If `totalRxBytes == 0`:
+- Check wiring: XBee DOUT → GPIO 3 (U0RXD)
+- Check XBee power: 3.3V (NOT 5V)
+- Check AP mode: AP must be 1 (not 0) in XCTU
+- Verify `ets_install_putc1(nullPutc)` is the FIRST line in `setup()`
 
 #### 3. Verify TX (node → admin)
 
 - On the admin, open the Testing page → Serial Monitor section.
-- Wait for the node to send REGISTER.
+- Wait for the node to send REGISTER (every 10 seconds).
 - Admin should show: `RX <- [0x90] from XXXX (...bytes) {"cmd":"REGISTER",...}`
 - If admin shows nothing, the node's XBee is not transmitting or the XBees are not associated.
 
 #### 4. Verify RX (admin → node)
 
 - On the admin, click "Send Test Message".
-- Node serial monitor should show: `[XBee] RX 0x90 (...bytes): {"cmd":"BROADCAST_MSG",...}`
-- If node shows nothing, check the wiring (GPIO 3 → DIN, GPIO 12 ← DOUT) and verify SPI SD mode is active.
+- Check the node's XBee diagnostics page — `rxFramesParsed` should increment.
+- If it doesn't, check the wiring (GPIO 1 → DIN, GPIO 3 ← DOUT).
 
 #### 5. Full handshake
 
-Expected serial output during a successful handshake:
+Expected sequence visible via the XBee diagnostics API:
 
-```
-[Node] Sent REGISTER
-[XBee] TX status: OK (frame 1)
-[XBee] RX 0x90 (28 bytes): {"cmd":"REGISTER_ACK",...}
-[Node] Got REGISTER_ACK — registered with admin!
-[Node] Sent SYNC_REQUEST
-[XBee] RX 0x90 (1234 bytes): {"cmd":"SYNC_DATA","users":[...],...}
-[Node] Sync complete — now in RUNNING state
-```
+1. Node sends `REGISTER` → `txFramesSent` increments
+2. Admin responds with `REGISTER_ACK` → `rxFramesParsed` increments
+3. Node sends `SYNC_REQUEST` → `txFramesSent` increments again
+4. Admin responds with `SYNC_DATA` → `rxFramesParsed` increments again
+5. Node enters `STATE_RUNNING` (state = 3) → visible in `/status` endpoint
 
 ---
 
