@@ -68,5 +68,5 @@ void loop() {
     dnsServer.processNextRequest();
     xbeeProcessIncoming();
     nodeClientLoop();
-    delay(10);
+    delay(10);  // Prevent 100% CPU spin; matches working test project timing
 }
