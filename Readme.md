@@ -125,10 +125,10 @@ Configure **both** XBee modules using Digi's [XCTU](https://www.digi.com/product
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| **CE** | `1` | **Coordinator** — forms the network |
 | **AP** | `1` | API mode 1 (binary frames, no escaping) |
-| **BD** | `3` | 9600 baud |
+| **CE** | `1` | **Coordinator** — forms the network |
 | **ID** | `1234` | PAN ID — must match the node XBee |
+| **BD** | `3` | 9600 baud |
 | **DH** | `0` | Destination address high |
 | **DL** | `FFFF` | Destination address low (broadcast) |
 
