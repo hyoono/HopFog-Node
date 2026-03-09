@@ -8,7 +8,18 @@
 #define XBEE_TX_STATUS     0x8B
 #define XBEE_MODEM_STATUS  0x8A
 #define XBEE_RX_PACKET     0x90
+#define XBEE_AT_COMMAND    0x08
+#define XBEE_AT_RESPONSE   0x88
 #define XBEE_MAX_FRAME     512
+
+struct XBeeConfig {
+    bool    valid;            // true if at least one AT response received
+    int     ap_mode;          // AP parameter (1 = API mode 1)
+    int     coordinator;      // CE parameter (1 = coordinator, 0 = router)
+    uint16_t pan_id;          // ID parameter
+    uint16_t my_addr;         // MY parameter
+    int     responses;        // how many AT responses received (expect 4)
+};
 
 struct XBeeStats {
     uint32_t totalRxBytes;
@@ -30,7 +41,8 @@ void            xbeeInit();
 uint8_t         xbeeSendBroadcast(const char* payload, size_t len);
 void            xbeeProcessIncoming();
 void            xbeeSetReceiveCallback(XBeeReceiveCB cb);
-void            xbeeFlushRx();
+void            xbeeQueryConfig();
+const XBeeConfig& xbeeGetConfig();
 const XBeeStats& xbeeGetStats();
 
 #endif // XBEE_COMM_H

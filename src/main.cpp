@@ -23,11 +23,22 @@ void setup() {
     delay(500);
 #endif
 
-    // 1. XBee — FIRST, before anything else (matches working test project)
-    //    Do NOT call esp_log_level_set() — CORE_DEBUG_LEVEL=0 is sufficient.
+    // 1. SD card FIRST (while UART0 is still at bootloader 115200 baud)
+    if (!initSDCard()) {
+        while (true) delay(1000);
+    }
+
+    // 2. Wait for bootloader UART0 output (115200 baud) and XBee module
+    //    boot-up to finish. Matches test project's ~1.8s blink delay.
+    delay(2000);
+
+    // 3. XBee — Serial.begin(9600) AFTER all SPI is done
     xbeeInit();
 
-    // 2. Node client + XBee callback (immediately after xbeeInit)
+    // 4. AT command probe
+    xbeeQueryConfig();
+
+    // 5. Node client + callback
     nodeClientInit();
     xbeeSetReceiveCallback([](const char* payload, size_t len) {
         if (!nodeClientHandleCommand(payload, len)) {
@@ -35,34 +46,19 @@ void setup() {
         }
     });
 
-    // 3. SD card
-    if (!initSDCard()) {
-        dbgprintln("[FATAL] SD card init failed – halting.");
-        while (true) delay(1000);
-    }
-
-    // 4. WiFi access point
-    dbgprintf("[WiFi] Starting AP \"%s\"\n", AP_SSID);
+    // 6. WiFi AP
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, 0, AP_MAX_CONN);
     delay(100);
     esp_wifi_set_ps(WIFI_PS_NONE);
-    dbgprintf("[WiFi] AP running — IP: %s\n", WiFi.softAPIP().toString().c_str());
 
-    // 5. DNS captive portal
+    // 7. DNS + Web server
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
-
-    // 6. Web server
     setupWebServer(server);
     server.begin();
 
-    // 7. Flush UART RX garbage from SD/WiFi init
-    xbeeFlushRx();
-
-    // 8. Wait for XBee network — matches test project delay(3000)
+    // 8. Wait for XBee network
     delay(3000);
-
-    dbgprintln("[Node] Setup complete — starting REGISTER cycle");
 }
 
 void loop() {
