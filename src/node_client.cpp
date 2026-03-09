@@ -9,6 +9,21 @@ static unsigned long lastRegisterMs  = 0;
 static unsigned long lastHeartbeatMs = 0;
 static unsigned long lastSyncMs      = 0;
 
+// ── Sync accumulation buffers — one JsonDocument per data part ───────
+static JsonDocument syncUsers;
+static JsonDocument syncAnnouncements;
+static JsonDocument syncConversations;
+static JsonDocument syncChatMessages;
+static JsonDocument syncFogNodes;
+
+static void initSyncBuffers() {
+    syncUsers.to<JsonArray>();
+    syncAnnouncements.to<JsonArray>();
+    syncConversations.to<JsonArray>();
+    syncChatMessages.to<JsonArray>();
+    syncFogNodes.to<JsonArray>();
+}
+
 // ── Helper: send a JSON command via XBee ────────────────────────────
 static void sendCommand(JsonDocument& doc) {
     doc["node_id"] = NODE_ID;
@@ -44,6 +59,7 @@ static void sendHeartbeat() {
 }
 
 static void sendSyncRequest() {
+    initSyncBuffers();  // Clear buffers before receiving new sync
     JsonDocument doc;
     doc["cmd"] = "SYNC_REQUEST";
     sendCommand(doc);
@@ -98,7 +114,41 @@ static void handleSyncData(JsonDocument& doc) {
         return;
     }
 
-    // Chunked SYNC_DATA (new format)
+    // ── Record-by-record format: "n" = count (final msg for this part) ──
+    if (doc["n"].is<int>()) {
+        // All records for this part have been sent — write buffer to SD
+        if (strcmp(part, "users") == 0) {
+            writeJsonFile(SD_USERS_FILE, syncUsers);
+        } else if (strcmp(part, "announcements") == 0) {
+            writeJsonFile(SD_ANNOUNCE_FILE, syncAnnouncements);
+        } else if (strcmp(part, "conversations") == 0) {
+            writeJsonFile(SD_CONVOS_FILE, syncConversations);
+        } else if (strcmp(part, "chat_messages") == 0) {
+            writeJsonFile(SD_DMS_FILE, syncChatMessages);
+        } else if (strcmp(part, "fog_nodes") == 0) {
+            writeJsonFile(SD_FOG_FILE, syncFogNodes);
+        }
+        return;
+    }
+
+    // ── Record-by-record format: "d" = single record object ─────────
+    if (doc["d"].is<JsonObject>()) {
+        JsonObject record = doc["d"].as<JsonObject>();
+        if (strcmp(part, "users") == 0) {
+            syncUsers.as<JsonArray>().add(record);
+        } else if (strcmp(part, "announcements") == 0) {
+            syncAnnouncements.as<JsonArray>().add(record);
+        } else if (strcmp(part, "conversations") == 0) {
+            syncConversations.as<JsonArray>().add(record);
+        } else if (strcmp(part, "chat_messages") == 0) {
+            syncChatMessages.as<JsonArray>().add(record);
+        } else if (strcmp(part, "fog_nodes") == 0) {
+            syncFogNodes.as<JsonArray>().add(record);
+        }
+        return;
+    }
+
+    // ── Chunked format: "data" = array of records ───────────────────
     JsonDocument saveDoc;
     if (doc["data"].is<JsonArray>()) {
         saveDoc.set(doc["data"]);
@@ -131,6 +181,8 @@ static void handleSyncData(JsonDocument& doc) {
 static void handleSyncDone() {
     state = STATE_RUNNING;
     lastHeartbeatMs = millis();
+    // Clear sync buffers for next sync
+    initSyncBuffers();
     dbgprintln("[Node] Sync complete — now in RUNNING state");
 }
 
@@ -174,6 +226,7 @@ void nodeClientInit() {
     lastRegisterMs = 0;
     lastHeartbeatMs = 0;
     lastSyncMs = 0;
+    initSyncBuffers();
     dbgprintln("[Node] Client initialized — will start REGISTER cycle");
 }
 
