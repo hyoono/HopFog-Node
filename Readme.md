@@ -271,6 +271,8 @@ All configuration is in `include/config.h`. Edit before building:
 #define SYNC_RETRY_MS          15000      // SYNC_REQUEST retry (ms)
 ```
 
+> **Note:** XBee uses UART0 (GPIO 1/3), which are also the USB serial pins. Disconnect the XBee before flashing firmware. USB Serial Monitor is not available while XBee is connected — use the web API (`/api/xbee/status`, `/status`) for diagnostics instead.
+
 ---
 
 ## Communication Protocol
@@ -619,7 +621,7 @@ If `totalRxBytes == 0`:
 - Check wiring: XBee DOUT → GPIO 3 (U0RXD)
 - Check XBee power: 3.3V (NOT 5V)
 - Check AP mode: AP must be 1 (not 0) in XCTU
-- Verify `ets_install_putc1(nullPutc)` is the FIRST line in `setup()`
+- Verify `ets_install_putc1(nullPutc)` is the FIRST line in `setup()` — this silences all ESP-IDF internal UART0 output (`ets_printf()`) that would otherwise corrupt XBee frames
 
 #### 3. Verify TX (node → admin)
 
