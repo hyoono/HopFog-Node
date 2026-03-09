@@ -106,6 +106,15 @@ static void handleSyncData(JsonDocument& doc) {
         saveDoc.to<JsonArray>();
     }
 
+    // If admin truncated data down to an empty array, skip writing
+    // to preserve whatever the node already has on SD card.
+    bool truncated = doc["truncated"] | false;
+    JsonArray dataArr = saveDoc.as<JsonArray>();
+    if (truncated && dataArr.size() == 0) {
+        dbgprintf("[Node] Skipping empty truncated %s\n", part);
+        return;
+    }
+
     if (strcmp(part, "users") == 0) {
         writeJsonFile(SD_USERS_FILE, saveDoc);
     } else if (strcmp(part, "announcements") == 0) {
