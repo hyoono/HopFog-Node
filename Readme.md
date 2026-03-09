@@ -57,16 +57,19 @@ This is a **2-XBee-module setup**: one coordinator (admin) and one router (node)
 
 **How it works:**
 
-1. Node boots, sends `REGISTER` to admin via XBee every 10 seconds.
+1. Node boots, sends `REGISTER` (~63 bytes) to admin via XBee every 10 seconds.
 2. Admin replies with `REGISTER_ACK`.
-3. Node sends `SYNC_REQUEST` to get all data (users, announcements, conversations, etc.).
-4. Admin replies with `SYNC_DATA` containing a full database dump.
+3. Node sends `SYNC_REQUEST` to get all data.
+4. Admin replies with chunked `SYNC_DATA` (one per data type) + `SYNC_DONE`.
 5. Node stores synced data on its SD card.
 6. Node creates its own WiFi AP for local mobile phones.
 7. A DNS captive portal resolves **hopfog.com** (and all other hostnames) to the node's IP, so users can simply type `hopfog.com` in their browser.
 8. Mobile phones connect to the node's WiFi and use the same API endpoints as the admin.
 9. Node relays user actions (send message, SOS, etc.) to admin via XBee.
-10. Node sends `HEARTBEAT` every 30 seconds; admin replies `PONG`.
+10. Admin sends `PING` every 10 seconds; node replies `PONG`.
+11. Node sends `HEARTBEAT` (~67 bytes) every 30 seconds; admin replies `PONG`.
+
+> **Important:** All node → admin messages must be under 72 bytes. ZigBee broadcast frames cannot be fragmented — payloads exceeding ~84 bytes are silently dropped by the XBee radio.
 
 ---
 
@@ -122,10 +125,12 @@ Configure **both** XBee modules using Digi's [XCTU](https://www.digi.com/product
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| **AP** | `1` | API mode 1 (binary frames, no escaping) |
 | **CE** | `1` | **Coordinator** — forms the network |
-| **ID** | `1234` | PAN ID — must match the node XBee |
+| **AP** | `1` | API mode 1 (binary frames, no escaping) |
 | **BD** | `3` | 9600 baud |
+| **ID** | `1234` | PAN ID — must match the node XBee |
+| **DH** | `0` | Destination address high |
+| **DL** | `FFFF` | Destination address low (broadcast) |
 
 ### Module 2: Node XBee (Router)
 
@@ -151,6 +156,24 @@ In XCTU, read the `AI` (Association Indication) parameter on the node XBee:
 | `0x21` | Scan found no PANs (coordinator not powered?) |
 | `0x22` | No valid PAN found (wrong PAN ID?) |
 | `0x23` | Join failed (authentication issue?) |
+
+### ⚠️ ZigBee Broadcast Payload Limit
+
+**XBee S2C ZigBee broadcast max RF payload: ~84 bytes.**
+
+Broadcast frames CANNOT be fragmented by the XBee radio. Messages larger than ~84 bytes are **silently dropped** — no error, no TX FAIL status, nothing appears on the receiving end.
+
+All node → admin messages (REGISTER, HEARTBEAT, PONG, STATS_RESPONSE, etc.) must be kept **under 72 bytes** of JSON payload to stay safely within this limit.
+
+| Message | Approx. Bytes | Status |
+|---------|---------------|--------|
+| REGISTER | ~63 | ✅ OK |
+| HEARTBEAT | ~67 | ✅ OK |
+| PONG | ~31 | ✅ OK |
+| SYNC_REQUEST | ~48 | ✅ OK |
+| STATS_RESPONSE | ~60 | ✅ OK |
+
+> **Note:** Unicast frames (admin → specific node) support fragmentation up to ~255 bytes. The admin uses unicast for REGISTER_ACK, SYNC_DATA chunks, etc.
 
 ---
 
@@ -258,7 +281,7 @@ All configuration is in `include/config.h`. Edit before building:
 
 // ── Node Identity ───────────────────────────────────────
 #define NODE_ID       "node-01"           // Node identifier
-#define DEVICE_NAME   "HopFog-Node-01"    // Human-readable name
+#define DEVICE_NAME   "Node01"            // Short — ZigBee broadcast limit
 
 // ── XBee (UART0) ───────────────────────────────────────
 #define XBEE_TX_PIN   1                   // U0TXD → XBee DIN
@@ -340,21 +363,26 @@ All JSON payloads use this structure:
 
 | Command | When | Params |
 |---------|------|--------|
-| `REGISTER` | Every 10s until ACK | `device_name`, `ip_address`, `status`, `free_heap` |
-| `HEARTBEAT` | Every 30s after registered | `ip_address`, `uptime`, `free_heap` |
+| `REGISTER` | Every 10s until ACK | `name` |
+| `HEARTBEAT` | Every 30s after registered | `up`, `heap` |
 | `SYNC_REQUEST` | After `REGISTER_ACK` | _(none)_ |
+| `PONG` | Reply to admin `PING` | _(none)_ |
 | `RELAY_CHAT_MSG` | Mobile user sends a message | `conversation_id`, `sender_id`, `message_text` |
 | `SOS_ALERT` | Mobile user triggers SOS | `user_id` |
 | `CHANGE_PASSWORD` | Mobile user changes password | `user_id`, `old_password`, `new_password` |
-| `STATS_RESPONSE` | Reply to `GET_STATS` | `free_heap`, `uptime`, `ip_address`, `wifi_stations` |
+| `STATS_RESPONSE` | Reply to `GET_STATS` | `heap`, `up` |
+
+> **All node → admin messages must be < 72 bytes** due to ZigBee broadcast payload limit.
 
 ### Admin → Node Commands
 
 | Command | When | Payload |
 |---------|------|---------|
 | `REGISTER_ACK` | Reply to `REGISTER` | — |
+| `PING` | Every 10s (broadcast) | — |
 | `PONG` | Reply to `HEARTBEAT` | — |
-| `SYNC_DATA` | Reply to `SYNC_REQUEST` | `users`, `announcements`, `conversations`, `chat_messages`, `fog_nodes` |
+| `SYNC_DATA` | Reply to `SYNC_REQUEST` | `part`, `data` (chunked) |
+| `SYNC_DONE` | After all `SYNC_DATA` chunks sent | — |
 | `BROADCAST_MSG` | Admin creates an announcement | `subject`, `message` |
 | `GET_STATS` | Admin requests node diagnostics | — |
 
@@ -364,15 +392,20 @@ All JSON payloads use this structure:
 Node                                     Admin
   │                                        │
   ├──► REGISTER ──────────────────────────►│
-  │    (every 10s)                         │
+  │    (every 10s, ~63 bytes)              │
   │◄──────────────────── REGISTER_ACK ◄────┤
   │                                        │
   ├──► SYNC_REQUEST ──────────────────────►│
-  │◄──────────────────── SYNC_DATA ◄───────┤
-  │    (users, announcements, etc.)        │
+  │◄────── SYNC_DATA {part:"users"} ◄──────┤
+  │◄── SYNC_DATA {part:"announcements"} ◄──┤
+  │◄──────────────────── SYNC_DONE ◄───────┤
+  │                                        │
+  │◄──────────────────── PING ◄────────────┤
+  ├──► PONG ───────────────────────────────►│
+  │    (every 10s)                         │
   │                                        │
   ├──► HEARTBEAT ─────────────────────────►│
-  │    (every 30s)                         │
+  │    (every 30s, ~67 bytes)              │
   │◄──────────────────── PONG ◄────────────┤
   │                                        │
   │    [Mobile user sends message]         │
@@ -397,7 +430,7 @@ Health check and node diagnostics.
 {
   "online": true,
   "node_id": "node-01",
-  "device_name": "HopFog-Node-01",
+  "device_name": "Node01",
   "state": 3,
   "free_heap": 180000,
   "uptime": 3600,

@@ -12,7 +12,8 @@ static unsigned long lastSyncMs      = 0;
 // ── Helper: send a JSON command via XBee ────────────────────────────
 static void sendCommand(JsonDocument& doc) {
     doc["node_id"] = NODE_ID;
-    doc["ts"] = (long)(millis() / 1000);
+    // REMOVED: doc["ts"] = (long)(millis() / 1000);
+    // ts adds ~10 bytes and pushes messages over the 72-byte broadcast limit
     String json;
     serializeJson(doc, json);
     xbeeSendBroadcast(json.c_str(), json.length());
@@ -21,24 +22,24 @@ static void sendCommand(JsonDocument& doc) {
 // ── Outgoing commands ───────────────────────────────────────────────
 
 static void sendRegister() {
+    // MUST be < 72 bytes total for ZigBee broadcast!
+    // Old version was ~155 bytes and was SILENTLY DROPPED by XBee.
     JsonDocument doc;
     doc["cmd"] = "REGISTER";
-    JsonObject params = doc["params"].to<JsonObject>();
-    params["device_name"] = DEVICE_NAME;
-    params["ip_address"] = WiFi.softAPIP().toString();
-    params["status"] = "active";
-    params["free_heap"] = (int)ESP.getFreeHeap();
+    JsonObject p = doc["params"].to<JsonObject>();
+    p["name"] = DEVICE_NAME;
+    // DO NOT add ip_address, status, free_heap — makes payload too large
     sendCommand(doc);
     dbgprintln("[Node] Sent REGISTER");
 }
 
 static void sendHeartbeat() {
+    // MUST be < 72 bytes for ZigBee broadcast
     JsonDocument doc;
     doc["cmd"] = "HEARTBEAT";
-    JsonObject params = doc["params"].to<JsonObject>();
-    params["ip_address"] = WiFi.softAPIP().toString();
-    params["uptime"] = (int)(millis() / 1000);
-    params["free_heap"] = (int)ESP.getFreeHeap();
+    JsonObject p = doc["params"].to<JsonObject>();
+    p["up"] = (int)(millis() / 1000);
+    p["heap"] = (int)(ESP.getFreeHeap() / 1024);  // KB not bytes
     sendCommand(doc);
 }
 
@@ -67,39 +68,58 @@ static void handlePong() {
 static void handleSyncData(JsonDocument& doc) {
     dbgprintln("[Node] Got SYNC_DATA — saving to SD card...");
 
-    // Save each data category to its own file
-    if (doc["users"].is<JsonArray>()) {
-        JsonDocument usersDoc;
-        usersDoc.set(doc["users"]);
-        writeJsonFile(SD_USERS_FILE, usersDoc);
-        dbgprintf("[Node] Saved %d users\n", doc["users"].as<JsonArray>().size());
+    const char* part = doc["part"] | "";
+
+    if (strlen(part) == 0) {
+        // Legacy single SYNC_DATA (backward compatible)
+        if (doc["users"].is<JsonArray>()) {
+            JsonDocument d; d.set(doc["users"]);
+            writeJsonFile(SD_USERS_FILE, d);
+        }
+        if (doc["announcements"].is<JsonArray>()) {
+            JsonDocument d; d.set(doc["announcements"]);
+            writeJsonFile(SD_ANNOUNCE_FILE, d);
+        }
+        if (doc["conversations"].is<JsonArray>()) {
+            JsonDocument d; d.set(doc["conversations"]);
+            writeJsonFile(SD_CONVOS_FILE, d);
+        }
+        if (doc["chat_messages"].is<JsonArray>()) {
+            JsonDocument d; d.set(doc["chat_messages"]);
+            writeJsonFile(SD_DMS_FILE, d);
+        }
+        if (doc["fog_nodes"].is<JsonArray>()) {
+            JsonDocument d; d.set(doc["fog_nodes"]);
+            writeJsonFile(SD_FOG_FILE, d);
+        }
+        state = STATE_RUNNING;
+        lastHeartbeatMs = millis();
+        dbgprintln("[Node] Sync complete — now in RUNNING state");
+        return;
     }
 
-    if (doc["announcements"].is<JsonArray>()) {
-        JsonDocument annDoc;
-        annDoc.set(doc["announcements"]);
-        writeJsonFile(SD_ANNOUNCE_FILE, annDoc);
-        dbgprintf("[Node] Saved %d announcements\n", doc["announcements"].as<JsonArray>().size());
+    // Chunked SYNC_DATA (new format)
+    JsonDocument saveDoc;
+    if (doc["data"].is<JsonArray>()) {
+        saveDoc.set(doc["data"]);
+    } else {
+        saveDoc.to<JsonArray>();
     }
 
-    if (doc["conversations"].is<JsonArray>()) {
-        JsonDocument convDoc;
-        convDoc.set(doc["conversations"]);
-        writeJsonFile(SD_CONVOS_FILE, convDoc);
+    if (strcmp(part, "users") == 0) {
+        writeJsonFile(SD_USERS_FILE, saveDoc);
+    } else if (strcmp(part, "announcements") == 0) {
+        writeJsonFile(SD_ANNOUNCE_FILE, saveDoc);
+    } else if (strcmp(part, "conversations") == 0) {
+        writeJsonFile(SD_CONVOS_FILE, saveDoc);
+    } else if (strcmp(part, "chat_messages") == 0) {
+        writeJsonFile(SD_DMS_FILE, saveDoc);
+    } else if (strcmp(part, "fog_nodes") == 0) {
+        writeJsonFile(SD_FOG_FILE, saveDoc);
     }
+}
 
-    if (doc["chat_messages"].is<JsonArray>()) {
-        JsonDocument dmDoc;
-        dmDoc.set(doc["chat_messages"]);
-        writeJsonFile(SD_DMS_FILE, dmDoc);
-    }
-
-    if (doc["fog_nodes"].is<JsonArray>()) {
-        JsonDocument fogDoc;
-        fogDoc.set(doc["fog_nodes"]);
-        writeJsonFile(SD_FOG_FILE, fogDoc);
-    }
-
+static void handleSyncDone() {
     state = STATE_RUNNING;
     lastHeartbeatMs = millis();
     dbgprintln("[Node] Sync complete — now in RUNNING state");
@@ -132,11 +152,9 @@ static void handleGetStats() {
     dbgprintln("[Node] Admin requested stats");
     JsonDocument doc;
     doc["cmd"] = "STATS_RESPONSE";
-    JsonObject params = doc["params"].to<JsonObject>();
-    params["free_heap"] = (int)ESP.getFreeHeap();
-    params["uptime"] = (int)(millis() / 1000);
-    params["ip_address"] = WiFi.softAPIP().toString();
-    params["wifi_stations"] = WiFi.softAPgetStationNum();
+    JsonObject p = doc["params"].to<JsonObject>();
+    p["heap"] = (int)(ESP.getFreeHeap() / 1024);
+    p["up"] = (int)(millis() / 1000);
     sendCommand(doc);
 }
 
@@ -200,6 +218,13 @@ bool nodeClientHandleCommand(const char* payload, size_t len) {
         handlePong();
     } else if (strcmp(cmd, "SYNC_DATA") == 0) {
         handleSyncData(doc);
+    } else if (strcmp(cmd, "SYNC_DONE") == 0) {
+        handleSyncDone();
+    } else if (strcmp(cmd, "PING") == 0) {
+        // Admin sends PING every 10s — reply with PONG
+        JsonDocument pong;
+        pong["cmd"] = "PONG";
+        sendCommand(pong);
     } else if (strcmp(cmd, "BROADCAST_MSG") == 0) {
         handleBroadcastMsg(doc["params"].as<JsonObject>());
     } else if (strcmp(cmd, "GET_STATS") == 0) {

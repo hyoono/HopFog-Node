@@ -25,7 +25,7 @@
 
 // ── Node Identity ───────────────────────────────────────────────────
 #define NODE_ID       "node-01"
-#define DEVICE_NAME   "HopFog-Node-01"
+#define DEVICE_NAME   "Node01"          // Short — ZigBee broadcast limit is ~84 bytes
 
 // ── SD Card (ESP32-CAM built-in slot — SPI mode) ────────────────────
 //
