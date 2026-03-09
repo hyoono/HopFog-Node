@@ -25,4 +25,10 @@ bool nodeClientHandleCommand(const char* payload, size_t len);
 /// Get current state (for diagnostic display).
 NodeState nodeClientGetState();
 
+/// Manually trigger a REGISTER broadcast (resets state to UNREGISTERED).
+void nodeClientTriggerRegister();
+
+/// Manually trigger a SYNC_REQUEST broadcast (sets state to SYNCING).
+void nodeClientTriggerSync();
+
 #endif // NODE_CLIENT_H

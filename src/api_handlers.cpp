@@ -400,6 +400,20 @@ void registerApiHandlers(AsyncWebServer& server) {
                       "{\"success\":true,\"message\":\"Password changed\"}");
     });
 
+    // ── POST /api/trigger/register — manually trigger REGISTER ────────
+    server.on("/api/trigger/register", HTTP_POST, [](AsyncWebServerRequest* request) {
+        nodeClientTriggerRegister();
+        request->send(200, "application/json",
+                      "{\"success\":true,\"message\":\"REGISTER sent\"}");
+    });
+
+    // ── POST /api/trigger/sync — manually trigger SYNC_REQUEST ──────
+    server.on("/api/trigger/sync", HTTP_POST, [](AsyncWebServerRequest* request) {
+        nodeClientTriggerSync();
+        request->send(200, "application/json",
+                      "{\"success\":true,\"message\":\"SYNC_REQUEST sent\"}");
+    });
+
     // ── GET /api/xbee/status — XBee diagnostic counters ─────────────
     server.on("/api/xbee/status", HTTP_GET, [](AsyncWebServerRequest* request) {
         const XBeeStats& s = xbeeGetStats();

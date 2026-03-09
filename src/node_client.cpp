@@ -239,3 +239,15 @@ bool nodeClientHandleCommand(const char* payload, size_t len) {
 NodeState nodeClientGetState() {
     return state;
 }
+
+void nodeClientTriggerRegister() {
+    sendRegister();
+    state = STATE_UNREGISTERED;
+    lastRegisterMs = millis();
+}
+
+void nodeClientTriggerSync() {
+    sendSyncRequest();
+    state = STATE_SYNCING;
+    lastSyncMs = millis();
+}
