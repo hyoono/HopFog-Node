@@ -18,46 +18,41 @@ void setup() {
     pinMode(FLASH_LED_PIN, OUTPUT);
     digitalWrite(FLASH_LED_PIN, LOW);
 
-#ifndef XBEE_USES_UART0
-    Serial.begin(115200);
-    delay(500);
-#endif
-
-    // 1. SD card FIRST (while UART0 is still at bootloader 115200 baud)
-    if (!initSDCard()) {
-        while (true) delay(1000);
-    }
-
-    // 2. Wait for bootloader UART0 output (115200 baud) and XBee module
-    //    boot-up to finish. Matches test project's ~1.8s blink delay.
-    delay(2000);
-
-    // 3. XBee — Serial.begin(9600) AFTER all SPI is done
+    // 1. XBee FIRST — Serial.begin(9600) before anything else
     xbeeInit();
 
-    // 4. AT command probe
-    xbeeQueryConfig();
-
-    // 5. Node client + callback
-    nodeClientInit();
+    // 2. Callback
     xbeeSetReceiveCallback([](const char* payload, size_t len) {
         if (!nodeClientHandleCommand(payload, len)) {
             dbgprintf("[XBee] Unhandled: %.80s\n", payload);
         }
     });
 
-    // 6. WiFi AP
+#ifndef XBEE_USES_UART0
+    Serial.begin(115200);
+    delay(500);
+#endif
+
+    // 3. SD card
+    if (!initSDCard()) {
+        while (true) delay(1000);
+    }
+
+    // 4. Node client
+    nodeClientInit();
+
+    // 5. WiFi AP
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, 0, AP_MAX_CONN);
     delay(100);
     esp_wifi_set_ps(WIFI_PS_NONE);
 
-    // 7. DNS + Web server
+    // 6. DNS + Web server
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
     setupWebServer(server);
     server.begin();
 
-    // 8. Wait for XBee network
+    // 7. Wait for XBee network
     delay(3000);
 }
 

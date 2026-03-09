@@ -1,48 +1,21 @@
-// xbee_comm.cpp — XBee S2C API Mode 1 driver (rebuilt from scratch)
-//
-// Based on the working XBEE_COMM_TEST project.
-// Uses UART0 (Serial) on native IOMUX pins GPIO 1 (TX) / GPIO 3 (RX).
-
 #include "xbee_comm.h"
 #include "config.h"
-#include <stdarg.h>
 
 static HardwareSerial& xbeeSerial = Serial;
 static XBeeReceiveCB rxCallback = nullptr;
 static uint8_t frameIdCounter = 0;
-
-// Diagnostic counters
 static XBeeStats stats = {};
-static XBeeConfig xbeeConfig = {};
 
-// Frame receive state machine
 enum RxState { WAIT_DELIM, LEN_HI, LEN_LO, FRAME_DATA, CHECKSUM };
 static RxState   rxState      = WAIT_DELIM;
 static uint16_t  rxFrameLen   = 0;
 static uint16_t  rxIdx        = 0;
 static uint8_t   rxFrame[XBEE_MAX_FRAME];
 static uint8_t   rxChecksum   = 0;
-static uint32_t  rxFrameStart = 0;
-static const uint32_t FRAME_TIMEOUT_MS = 1000;
 
 void xbeeInit() {
     xbeeSerial.begin(XBEE_BAUD);
-
-    // Flush bootloader garbage (bootloader runs at 115200, XBee at 9600)
-    {
-        uint32_t lastByte = millis();
-        while (millis() - lastByte < 100) {
-            if (xbeeSerial.available()) {
-                xbeeSerial.read();
-                lastByte = millis();
-            }
-        }
-    }
-
     memset(&stats, 0, sizeof(stats));
-    memset(&xbeeConfig, 0, sizeof(xbeeConfig));
-    xbeeConfig.ap_mode = -1;
-    xbeeConfig.coordinator = -1;
     dbgprintf("[XBee] UART0 ready — baud=%d TX=GPIO%d RX=GPIO%d\n",
               XBEE_BAUD, XBEE_TX_PIN, XBEE_RX_PIN);
 }
@@ -65,7 +38,6 @@ uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
     for (size_t i = 0; i < len; i++) cksum += (uint8_t)payload[i];
     cksum = 0xFF - cksum;
 
-    // 6 separate writes — matches the working test project
     xbeeSerial.write(XBEE_START_DELIM);
     xbeeSerial.write((uint8_t)(frameDataLen >> 8));
     xbeeSerial.write((uint8_t)(frameDataLen & 0xFF));
@@ -83,94 +55,37 @@ uint8_t xbeeSendBroadcast(const char* payload, size_t len) {
 void xbeeSetReceiveCallback(XBeeReceiveCB cb) { rxCallback = cb; }
 const XBeeStats& xbeeGetStats() { return stats; }
 
-static void sendATQuery(uint8_t fid, char at1, char at2) {
-    uint8_t frame[8];
-    frame[0] = XBEE_START_DELIM;
-    frame[1] = 0x00;
-    frame[2] = 0x04;
-    frame[3] = XBEE_AT_COMMAND;
-    frame[4] = fid;
-    frame[5] = (uint8_t)at1;
-    frame[6] = (uint8_t)at2;
-    frame[7] = 0xFF - ((frame[3] + frame[4] + frame[5] + frame[6]) & 0xFF);
-    xbeeSerial.write(frame, 8);
-    xbeeSerial.flush();
-    stats.totalTxBytes += 8;
-}
-
 static void handleCompleteFrame() {
     stats.rxFramesParsed++;
     uint8_t ft = rxFrame[0];
 
-    switch (ft) {
-    case XBEE_RX_PACKET:
-        if (rxFrameLen < 13) break;
-        {
-            const char* rfData = (const char*)&rxFrame[12];
-            size_t rfLen = rxFrameLen - 12;
-            while (rfLen > 0 && (rfData[rfLen - 1] == '\n' || rfData[rfLen - 1] == '\r')) rfLen--;
-            if (rfLen > 0) {
-                rxFrame[12 + rfLen] = '\0';
-                stats.rxDataFrames++;
-                dbgprintf("[XBee] RX 0x90 (%d B): %.80s\n", (int)rfLen, rfData);
-                if (rxCallback) rxCallback(rfData, rfLen);
-            }
+    if (ft == XBEE_RX_PACKET && rxFrameLen >= 13) {
+        const char* rfData = (const char*)&rxFrame[12];
+        size_t rfLen = rxFrameLen - 12;
+        while (rfLen > 0 && (rfData[rfLen - 1] == '\n' || rfData[rfLen - 1] == '\r')) rfLen--;
+        if (rfLen > 0) {
+            rxFrame[12 + rfLen] = '\0';
+            dbgprintf("[XBee] RX 0x90 (%d B): %.80s\n", (int)rfLen, rfData);
+            if (rxCallback) rxCallback(rfData, rfLen);
         }
-        break;
-    case XBEE_TX_STATUS:
-        if (rxFrameLen < 7) break;
+    } else if (ft == XBEE_TX_STATUS && rxFrameLen >= 7) {
         if (rxFrame[5] == 0x00) { stats.txStatusOK++; }
         else { stats.txStatusFail++; dbgprintf("[XBee] TX FAIL 0x%02X\n", rxFrame[5]); }
-        break;
-    case XBEE_MODEM_STATUS:
-        if (rxFrameLen >= 2) {
-            stats.modemStatusCount++;
-            stats.lastModemStatus = rxFrame[1];
-            dbgprintf("[XBee] Modem status: 0x%02X\n", rxFrame[1]);
-        }
-        break;
-    case XBEE_TX_REQUEST:
-        break;  // self-echo, ignore silently
-    case XBEE_AT_RESPONSE:
-        if (rxFrameLen >= 5) {
-            char at[3] = { (char)rxFrame[2], (char)rxFrame[3], '\0' };
-            uint8_t status = rxFrame[4];
-            if (status == 0x00) {
-                xbeeConfig.responses++;
-                xbeeConfig.valid = true;
-                if (at[0] == 'A' && at[1] == 'P' && rxFrameLen >= 6)
-                    xbeeConfig.ap_mode = rxFrame[5];
-                else if (at[0] == 'I' && at[1] == 'D' && rxFrameLen >= 6) {
-                    if (rxFrameLen >= 7) xbeeConfig.pan_id = ((uint16_t)rxFrame[5] << 8) | rxFrame[6];
-                    else xbeeConfig.pan_id = rxFrame[5];
-                }
-                else if (at[0] == 'C' && at[1] == 'E' && rxFrameLen >= 6)
-                    xbeeConfig.coordinator = rxFrame[5];
-                else if (at[0] == 'M' && at[1] == 'Y' && rxFrameLen >= 6) {
-                    if (rxFrameLen >= 7) xbeeConfig.my_addr = ((uint16_t)rxFrame[5] << 8) | rxFrame[6];
-                    else xbeeConfig.my_addr = rxFrame[5];
-                }
-                dbgprintf("[XBee] AT %s = OK\n", at);
-            }
-        }
-        break;
-    default:
-        dbgprintf("[XBee] Unknown frame 0x%02X\n", ft);
-        break;
+    } else if (ft == XBEE_MODEM_STATUS && rxFrameLen >= 2) {
+        stats.modemStatusCount++;
+        stats.lastModemStatus = rxFrame[1];
+        dbgprintf("[XBee] Modem status: 0x%02X\n", rxFrame[1]);
     }
+    // 0x10 self-echo and others: silently ignore
 }
 
 void xbeeProcessIncoming() {
-    if (rxState != WAIT_DELIM && millis() - rxFrameStart > FRAME_TIMEOUT_MS) {
-        stats.frameTimeouts++;
-        rxState = WAIT_DELIM;
-    }
     while (xbeeSerial.available()) {
         uint8_t b = xbeeSerial.read();
         stats.totalRxBytes++;
         switch (rxState) {
         case WAIT_DELIM:
-            if (b == XBEE_START_DELIM) { rxState = LEN_HI; rxFrameStart = millis(); }
+            if (b == XBEE_START_DELIM) rxState = LEN_HI;
             break;
         case LEN_HI:
             rxFrameLen = (uint16_t)b << 8; rxState = LEN_LO; break;
@@ -186,23 +101,8 @@ void xbeeProcessIncoming() {
         case CHECKSUM:
             rxChecksum += b;
             if (rxChecksum == 0xFF) handleCompleteFrame();
-            else stats.checksumErrors++;
             rxState = WAIT_DELIM;
             break;
         }
     }
 }
-
-void xbeeQueryConfig() {
-    sendATQuery(0xF1, 'A', 'P');
-    delay(100); xbeeProcessIncoming();
-    sendATQuery(0xF2, 'I', 'D');
-    delay(100); xbeeProcessIncoming();
-    sendATQuery(0xF3, 'C', 'E');
-    delay(100); xbeeProcessIncoming();
-    sendATQuery(0xF4, 'M', 'Y');
-    delay(100); xbeeProcessIncoming();
-    dbgprintf("[XBee] Config probe: %d/4 responses\n", xbeeConfig.responses);
-}
-
-const XBeeConfig& xbeeGetConfig() { return xbeeConfig; }

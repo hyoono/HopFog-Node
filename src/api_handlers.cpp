@@ -407,12 +407,9 @@ void registerApiHandlers(AsyncWebServer& server) {
         doc["totalRxBytes"]     = s.totalRxBytes;
         doc["totalTxBytes"]     = s.totalTxBytes;
         doc["rxFramesParsed"]   = s.rxFramesParsed;
-        doc["rxDataFrames"]     = s.rxDataFrames;
         doc["txFramesSent"]     = s.txFramesSent;
         doc["txStatusOK"]       = s.txStatusOK;
         doc["txStatusFail"]     = s.txStatusFail;
-        doc["checksumErrors"]   = s.checksumErrors;
-        doc["frameTimeouts"]    = s.frameTimeouts;
         doc["modemStatusCount"] = s.modemStatusCount;
         doc["lastModemStatus"]  = s.lastModemStatus;
         doc["uptimeSeconds"]    = (int)(millis() / 1000);
