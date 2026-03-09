@@ -1,8 +1,9 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <esp_wifi.h>
 #include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
+#include <rom/ets_sys.h>
+#include <esp_log.h>
 
 #include "config.h"
 #include "sd_storage.h"
@@ -13,46 +14,53 @@
 AsyncWebServer server(HTTP_PORT);
 DNSServer      dnsServer;
 
+static void nullPutc(char c) { (void)c; }
+
 void setup() {
-    // Disable ESP32-CAM flash LED
+    // STEP 0: Silence ALL UART0 output — THIS IS THE KEY FIX
+    // ESP-IDF components (WiFi, SPI, AsyncTCP) use ets_printf() which
+    // outputs to UART0 regardless of CORE_DEBUG_LEVEL. This corrupts
+    // XBee API frames. Install a no-op putc to swallow everything.
+    ets_install_putc1(nullPutc);
+    esp_log_level_set("*", ESP_LOG_NONE);
+
+    // Step 1: Disable ESP32-CAM flash LED
     pinMode(FLASH_LED_PIN, OUTPUT);
     digitalWrite(FLASH_LED_PIN, LOW);
 
-    // 1. XBee FIRST — Serial.begin(9600) before anything else
-    xbeeInit();
-
-    // 2. Callback
-    xbeeSetReceiveCallback([](const char* payload, size_t len) {
-        if (!nodeClientHandleCommand(payload, len)) {
-            dbgprintf("[XBee] Unhandled: %.80s\n", payload);
-        }
-    });
-
-#ifndef XBEE_USES_UART0
-    Serial.begin(115200);
-    delay(500);
-#endif
-
-    // 3. SD card
-    if (!initSDCard()) {
-        while (true) delay(1000);
+    // Step 2: LED blink delay (~1.8 seconds) — matches working test project
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, HIGH);  // LED off (active LOW)
+    for (int i = 0; i < 3; i++) {
+        digitalWrite(STATUS_LED_PIN, LOW);  delay(300);
+        digitalWrite(STATUS_LED_PIN, HIGH); delay(300);
     }
 
-    // 4. Node client
+    // Step 3: XBee init — Serial.begin(9600)
+    xbeeInit();
+
+    // Step 4: XBee receive callback
+    xbeeSetReceiveCallback([](const char* payload, size_t len) {
+        nodeClientHandleCommand(payload, len);
+    });
+
+    // Step 5: SD card (don't halt on failure — XBee still works)
+    initSDCard();
+
+    // Step 6: Node client
     nodeClientInit();
 
-    // 5. WiFi AP
+    // Step 7: WiFi AP (simple — no setTxPower, no esp_wifi_set_ps)
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, 0, AP_MAX_CONN);
     delay(100);
-    esp_wifi_set_ps(WIFI_PS_NONE);
 
-    // 6. DNS + Web server
+    // Step 8: DNS + Web server
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
     setupWebServer(server);
     server.begin();
 
-    // 7. Wait for XBee network
+    // Step 9: Wait for XBee network
     delay(3000);
 }
 
@@ -60,5 +68,5 @@ void loop() {
     dnsServer.processNextRequest();
     xbeeProcessIncoming();
     nodeClientLoop();
-    yield();
+    delay(10);
 }

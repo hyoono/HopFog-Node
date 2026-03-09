@@ -7,29 +7,14 @@
 #define SD_FS SD
 
 bool initSDCard() {
-    dbgprintln("[SD] Initialising SD card...");
-
-#ifdef ESP32CAM_SPI_SD
     // ESP32-CAM: use SPI mode to access the built-in SD card slot.
     // This avoids the SD_MMC peripheral which permanently claims
     // GPIO 12/13 via IOMUX.
-    // Static so the SPI bus object persists (SD library holds a reference).
     static SPIClass spiSD(HSPI);
     spiSD.begin(SD_SPI_CLK, SD_SPI_MISO, SD_SPI_MOSI, SD_CS_PIN);
     if (!SD.begin(SD_CS_PIN, spiSD)) {
-        dbgprintln("[SD] SPI SD mount failed!");
         return false;
     }
-    dbgprintln("[SD] SPI mode (HSPI) — mounted OK");
-#else
-    if (!SD.begin()) {
-        dbgprintln("[SD] Mount failed!");
-        return false;
-    }
-#endif
-
-    dbgprintf("[SD] Card size: %lluMB\n",
-                  SD_FS.totalBytes() / (1024 * 1024));
 
     // Create /db directory if needed
     if (!SD_FS.exists(SD_DB_DIR)) {
