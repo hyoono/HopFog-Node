@@ -24,6 +24,16 @@ static void initSyncBuffers() {
     syncFogNodes.to<JsonArray>();
 }
 
+// Helper: find the sync buffer for a given part name
+static JsonDocument* getSyncBuffer(const char* part) {
+    if (strcmp(part, "users") == 0) return &syncUsers;
+    if (strcmp(part, "announcements") == 0) return &syncAnnouncements;
+    if (strcmp(part, "conversations") == 0) return &syncConversations;
+    if (strcmp(part, "chat_messages") == 0) return &syncChatMessages;
+    if (strcmp(part, "fog_nodes") == 0) return &syncFogNodes;
+    return nullptr;
+}
+
 // ── Helper: send a JSON command via XBee ────────────────────────────
 static void sendCommand(JsonDocument& doc) {
     doc["node_id"] = NODE_ID;
@@ -186,6 +196,39 @@ static void handleSyncDone() {
     dbgprintln("[Node] Sync complete — now in RUNNING state");
 }
 
+static void handleSyncContinuation(JsonDocument& doc) {
+    // SC = Sync Continuation: appends text to a field in a previously
+    // received record. Used for long text fields that exceeded the
+    // 240-byte XBee unicast limit.
+    //
+    // Format: {"cmd":"SC","p":"announcements","s":0,"k":"body","v":"...text chunk..."}
+    //   p = part name
+    //   s = seq number (index into the sync buffer for that part)
+    //   k = field key to append to
+    //   v = text chunk to append
+    const char* part = doc["p"] | "";
+    int seq = doc["s"] | -1;
+    const char* key = doc["k"] | "";
+    const char* val = doc["v"] | "";
+    if (seq < 0 || strlen(key) == 0 || strlen(part) == 0) {
+        dbgprintln("[Node] SC: invalid params");
+        return;
+    }
+
+    JsonDocument* buf = getSyncBuffer(part);
+    if (!buf) return;
+
+    JsonArray arr = buf->as<JsonArray>();
+    if (seq >= (int)arr.size()) {
+        dbgprintf("[Node] SC: seq %d not found in %s\n", seq, part);
+        return;
+    }
+
+    JsonObject rec = arr[seq].as<JsonObject>();
+    // Append v to existing value of key
+    rec[key] = rec[key].as<String>() + val;
+}
+
 static void handleBroadcastMsg(JsonObject params) {
     // Admin sent a broadcast announcement — store it locally
     dbgprintf("[Node] Broadcast: %s\n", (const char*)(params["message"] | ""));
@@ -280,6 +323,8 @@ bool nodeClientHandleCommand(const char* payload, size_t len) {
         handlePong();
     } else if (strcmp(cmd, "SYNC_DATA") == 0) {
         handleSyncData(doc);
+    } else if (strcmp(cmd, "SC") == 0) {
+        handleSyncContinuation(doc);
     } else if (strcmp(cmd, "SYNC_DONE") == 0) {
         handleSyncDone();
     } else if (strcmp(cmd, "PING") == 0) {
