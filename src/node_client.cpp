@@ -9,6 +9,13 @@ static unsigned long lastRegisterMs  = 0;
 static unsigned long lastHeartbeatMs = 0;
 static unsigned long lastSyncMs      = 0;
 
+// ZigBee broadcast payload limit — messages larger than this are silently dropped
+static const int XBEE_MAX_BROADCAST_BYTES = 72;
+// SC chunk size for string fields (conservative to fit in broadcast)
+static const int SC_CHUNK_SIZE = 40;
+// Delay between XBee transmissions to avoid overwhelming the radio
+static const int XBEE_TX_DELAY_MS = 50;
+
 // ── Sync accumulation buffers — one JsonDocument per data part ───────
 static JsonDocument syncUsers;
 static JsonDocument syncAnnouncements;
@@ -286,7 +293,7 @@ static void sendSyncBackPart(const char* partName, const char* sdFile) {
         String json;
         serializeJson(msg, json);
 
-        if ((int)json.length() <= 72) {
+        if ((int)json.length() <= XBEE_MAX_BROADCAST_BYTES) {
             xbeeSendBroadcast(json.c_str(), json.length());
         } else {
             // Too large for broadcast — send skeleton + SC chunks
@@ -306,7 +313,7 @@ static void sendSyncBackPart(const char* partName, const char* sdFile) {
             String skelJson;
             serializeJson(skelMsg, skelJson);
             xbeeSendBroadcast(skelJson.c_str(), skelJson.length());
-            delay(50);
+            delay(XBEE_TX_DELAY_MS);
 
             // Send string fields as SC
             for (JsonPair kv : rec) {
@@ -317,9 +324,8 @@ static void sendSyncBackPart(const char* partName, const char* sdFile) {
                 int offset = 0;
                 int fullLen = strlen(val);
                 while (offset < fullLen) {
-                    int chunkSize = 40;
-                    int end = (offset + chunkSize < fullLen)
-                              ? offset + chunkSize : fullLen;
+                    int end = (offset + SC_CHUNK_SIZE < fullLen)
+                              ? offset + SC_CHUNK_SIZE : fullLen;
 
                     JsonDocument sc;
                     sc["cmd"] = "SC";
@@ -329,17 +335,17 @@ static void sendSyncBackPart(const char* partName, const char* sdFile) {
                     sc["v"] = String(val).substring(offset, end);
                     String scJson;
                     serializeJson(sc, scJson);
-                    if ((int)scJson.length() <= 72) {
+                    if ((int)scJson.length() <= XBEE_MAX_BROADCAST_BYTES) {
                         xbeeSendBroadcast(scJson.c_str(), scJson.length());
                     }
-                    delay(50);
+                    delay(XBEE_TX_DELAY_MS);
                     offset = end;
                 }
             }
         }
 
         sent++;
-        delay(50);
+        delay(XBEE_TX_DELAY_MS);
     }
 
     // Count message
@@ -351,7 +357,7 @@ static void sendSyncBackPart(const char* partName, const char* sdFile) {
     String countJson;
     serializeJson(countMsg, countJson);
     xbeeSendBroadcast(countJson.c_str(), countJson.length());
-    delay(50);
+    delay(XBEE_TX_DELAY_MS);
 }
 
 static void sendSyncBack() {

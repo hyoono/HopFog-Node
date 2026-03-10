@@ -2,6 +2,8 @@
 #include <mbedtls/sha256.h>
 #include <esp_random.h>
 
+static const int SALT_BYTES = 8;  // Generates 16-char hex salt
+
 static String sha256Hex(const String& input) {
     unsigned char hash[32];
     mbedtls_sha256_context ctx;
@@ -24,8 +26,8 @@ static String sha256Hex(const String& input) {
 
 static String generateSalt() {
     String salt;
-    salt.reserve(16);
-    for (int i = 0; i < 8; i++) {
+    salt.reserve(SALT_BYTES * 2);
+    for (int i = 0; i < SALT_BYTES; i++) {
         char buf[3];
         snprintf(buf, sizeof(buf), "%02x", (uint8_t)esp_random());
         salt += buf;
