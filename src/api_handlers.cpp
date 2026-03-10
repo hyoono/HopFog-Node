@@ -160,12 +160,7 @@ void registerApiHandlers(AsyncWebServer& server) {
             unsigned long latestTime = 0;
             for (JsonObject m : dmDoc.as<JsonArray>()) {
                 if ((m["conversation_id"] | 0) != convoId) continue;
-                unsigned long ts = m["sent_at"] | 0UL;
-                if (ts == 0 && m["created_at"].is<const char*>()) {
-                    ts = String(m["created_at"].as<const char*>()).toInt();
-                } else if (ts == 0) {
-                    ts = m["created_at"] | 0UL;
-                }
+                unsigned long ts = m["sent_at"] | m["created_at"].as<unsigned long>();
                 if (ts >= latestTime) {
                     latestTime = ts;
                     lastMsg = m["message_text"] | "";
