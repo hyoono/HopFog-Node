@@ -6,38 +6,64 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 
-// Forward declarations for api_handlers.cpp
 extern void registerApiHandlers(AsyncWebServer& server);
 
-// Cached AP IP string — set once in setupWebServer(), used in onNotFound()
-static String apIpStr;
-
 void setupWebServer(AsyncWebServer& server) {
-    apIpStr = WiFi.softAPIP().toString();
-
     // CORS headers for mobile app
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
-    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods",
+                                         "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers",
+                                         "Content-Type, Authorization");
 
-    // Handle CORS preflight and captive-portal redirects
+    // ── Captive portal detection (prevents login popup) ─────────────
+    // Android
+    server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(204);
+    });
+    server.on("/gen_204", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(204);
+    });
+
+    // Apple / iOS
+    server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/html",
+                      "<HTML><HEAD><TITLE>Success</TITLE></HEAD>"
+                      "<BODY>Success</BODY></HTML>");
+    });
+    server.on("/library/test/success.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/html",
+                      "<HTML><HEAD><TITLE>Success</TITLE></HEAD>"
+                      "<BODY>Success</BODY></HTML>");
+    });
+
+    // Windows NCSI
+    server.on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/plain", "Microsoft NCSI");
+    });
+    server.on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/plain", "Microsoft Connect Test");
+    });
+
+    // Firefox
+    server.on("/canonical.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/html",
+                      "<HTML><HEAD><TITLE>Success</TITLE></HEAD>"
+                      "<BODY>Success</BODY></HTML>");
+    });
+    server.on("/success.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/plain", "success\n");
+    });
+
+    // Register API endpoints
+    registerApiHandlers(server);
+
+    // 404 — NO captive portal redirect! Just return 404.
     server.onNotFound([](AsyncWebServerRequest* request) {
         if (request->method() == HTTP_OPTIONS) {
             request->send(200);
             return;
         }
-
-        // Android / iOS / Windows captive-portal detection endpoints.
-        // If the Host header is NOT our domain, redirect to it so the
-        // phone opens the captive-portal browser pointing at hopfog.com.
-        String host = request->host();
-        if (host.length() > 0 && host != CAPTIVE_DOMAIN && host != apIpStr) {
-            request->redirect(String("http://") + CAPTIVE_DOMAIN + request->url());
-            return;
-        }
-
         request->send(404, "application/json", "{\"error\":\"Not found\"}");
     });
-
-    registerApiHandlers(server);
 }
