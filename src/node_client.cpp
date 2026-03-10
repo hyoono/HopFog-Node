@@ -262,6 +262,111 @@ static void handleGetStats() {
     sendCommand(doc);
 }
 
+// ── SYNC_BACK: send local data back to admin ───────────────────────
+
+static void sendSyncBackPart(const char* partName, const char* sdFile) {
+    JsonDocument fileDoc;
+    readJsonFile(sdFile, fileDoc);
+    JsonArray arr = fileDoc.is<JsonArray>() ? fileDoc.as<JsonArray>()
+                                            : fileDoc.to<JsonArray>();
+    int sent = 0;
+    for (JsonVariant item : arr) {
+        JsonObject rec = item.as<JsonObject>();
+
+        JsonDocument msg;
+        msg["cmd"] = "SYNC_BACK";
+        msg["node_id"] = NODE_ID;
+        msg["part"] = partName;
+        msg["seq"] = sent;
+        JsonObject d = msg["d"].to<JsonObject>();
+        for (JsonPair kv : rec) {
+            d[kv.key()] = kv.value();
+        }
+
+        String json;
+        serializeJson(msg, json);
+
+        if ((int)json.length() <= 72) {
+            xbeeSendBroadcast(json.c_str(), json.length());
+        } else {
+            // Too large for broadcast — send skeleton + SC chunks
+            JsonDocument skelMsg;
+            skelMsg["cmd"] = "SYNC_BACK";
+            skelMsg["node_id"] = NODE_ID;
+            skelMsg["part"] = partName;
+            skelMsg["seq"] = sent;
+            JsonObject skelD = skelMsg["d"].to<JsonObject>();
+            for (JsonPair kv : rec) {
+                if (kv.value().is<const char*>()) {
+                    skelD[kv.key()] = "";
+                } else {
+                    skelD[kv.key()] = kv.value();
+                }
+            }
+            String skelJson;
+            serializeJson(skelMsg, skelJson);
+            xbeeSendBroadcast(skelJson.c_str(), skelJson.length());
+            delay(50);
+
+            // Send string fields as SC
+            for (JsonPair kv : rec) {
+                if (!kv.value().is<const char*>()) continue;
+                const char* val = kv.value().as<const char*>();
+                if (strlen(val) == 0) continue;
+
+                int offset = 0;
+                int fullLen = strlen(val);
+                while (offset < fullLen) {
+                    int chunkSize = 40;
+                    int end = (offset + chunkSize < fullLen)
+                              ? offset + chunkSize : fullLen;
+
+                    JsonDocument sc;
+                    sc["cmd"] = "SC";
+                    sc["p"] = partName;
+                    sc["s"] = sent;
+                    sc["k"] = kv.key().c_str();
+                    sc["v"] = String(val).substring(offset, end);
+                    String scJson;
+                    serializeJson(sc, scJson);
+                    if ((int)scJson.length() <= 72) {
+                        xbeeSendBroadcast(scJson.c_str(), scJson.length());
+                    }
+                    delay(50);
+                    offset = end;
+                }
+            }
+        }
+
+        sent++;
+        delay(50);
+    }
+
+    // Count message
+    JsonDocument countMsg;
+    countMsg["cmd"] = "SYNC_BACK";
+    countMsg["node_id"] = NODE_ID;
+    countMsg["part"] = partName;
+    countMsg["n"] = sent;
+    String countJson;
+    serializeJson(countMsg, countJson);
+    xbeeSendBroadcast(countJson.c_str(), countJson.length());
+    delay(50);
+}
+
+static void sendSyncBack() {
+    // Only sync parts that the node generates locally
+    sendSyncBackPart("chat_messages", SD_DMS_FILE);
+    sendSyncBackPart("conversations", SD_CONVOS_FILE);
+
+    JsonDocument done;
+    done["cmd"] = "SYNC_BACK_DONE";
+    done["node_id"] = NODE_ID;
+    String doneJson;
+    serializeJson(done, doneJson);
+    xbeeSendBroadcast(doneJson.c_str(), doneJson.length());
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 void nodeClientInit() {
@@ -357,4 +462,8 @@ void nodeClientTriggerSync() {
     sendSyncRequest();
     state = STATE_SYNCING;
     lastSyncMs = millis();
+}
+
+void nodeClientTriggerSyncBack() {
+    sendSyncBack();
 }

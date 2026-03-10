@@ -3,6 +3,7 @@
 #include "sd_storage.h"
 #include "xbee_comm.h"
 #include "node_client.h"
+#include "auth.h"
 #include <ArduinoJson.h>
 
 // ── Helper: relay a JSON command to admin via XBee ──────────────────
@@ -68,16 +69,35 @@ void registerApiHandlers(AsyncWebServer& server) {
         JsonArray users = usersDoc.as<JsonArray>();
 
         for (JsonObject user : users) {
-            if (strcmp(user["username"] | "", username) == 0 &&
-                strcmp(user["password"] | "", password) == 0) {
+            if (strcmp(user["username"] | "", username) != 0) continue;
+
+            // Check is_active
+            int active = user["is_active"] | 1;
+            if (active == 0) {
+                request->send(403, "application/json",
+                              "{\"success\":false,\"error\":\"Account inactive\"}");
+                return;
+            }
+
+            // Verify password against password_hash (salt:sha256hex format)
+            const char* storedHash = user["password_hash"] | "";
+            if (strlen(storedHash) > 0 && verifyPassword(String(password), String(storedHash))) {
                 JsonDocument respDoc;
                 respDoc["success"] = true;
-                respDoc["user"] = user;
+                JsonObject u = respDoc["user"].to<JsonObject>();
+                u["user_id"] = user["id"] | 0;
+                u["username"] = user["username"] | "";
+                u["email"] = user["email"] | "";
+                u["has_agreed_sos"] = (user["has_agreed_sos"] | 0) == 1;
                 String response;
                 serializeJson(respDoc, response);
                 request->send(200, "application/json", response);
                 return;
             }
+
+            request->send(401, "application/json",
+                          "{\"success\":false,\"error\":\"Invalid credentials\"}");
+            return;
         }
 
         request->send(401, "application/json",
@@ -368,12 +388,13 @@ void registerApiHandlers(AsyncWebServer& server) {
         bool found = false;
         for (JsonObject user : users) {
             if ((user["id"] | 0) == userId) {
-                if (strcmp(user["password"] | "", oldPw) != 0) {
+                const char* storedHash = user["password_hash"] | "";
+                if (!verifyPassword(String(oldPw), String(storedHash))) {
                     request->send(401, "application/json",
                                   "{\"success\":false,\"error\":\"Wrong old password\"}");
                     return;
                 }
-                user["password"] = newPw;
+                user["password_hash"] = hashPassword(String(newPw));
                 found = true;
                 break;
             }
@@ -412,6 +433,13 @@ void registerApiHandlers(AsyncWebServer& server) {
         nodeClientTriggerSync();
         request->send(200, "application/json",
                       "{\"success\":true,\"message\":\"SYNC_REQUEST sent\"}");
+    });
+
+    // ── POST /api/trigger/sync-back — send local data back to admin ──
+    server.on("/api/trigger/sync-back", HTTP_POST, [](AsyncWebServerRequest* request) {
+        nodeClientTriggerSyncBack();
+        request->send(200, "application/json",
+                      "{\"success\":true,\"message\":\"SYNC_BACK sent\"}");
     });
 
     // ── GET /api/xbee/status — XBee diagnostic counters ─────────────

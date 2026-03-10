@@ -31,4 +31,7 @@ void nodeClientTriggerRegister();
 /// Manually trigger a SYNC_REQUEST broadcast (sets state to SYNCING).
 void nodeClientTriggerSync();
 
+/// Manually trigger SYNC_BACK — send local data back to admin.
+void nodeClientTriggerSyncBack();
+
 #endif // NODE_CLIENT_H
