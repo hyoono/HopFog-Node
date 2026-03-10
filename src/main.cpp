@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 #include <rom/ets_sys.h>
 #include <esp_log.h>
+#include <esp_wifi.h>
 
 #include "config.h"
 #include "sd_storage.h"
@@ -50,10 +51,12 @@ void setup() {
     // Step 6: Node client
     nodeClientInit();
 
-    // Step 7: WiFi AP (simple — no setTxPower, no esp_wifi_set_ps)
+    // Step 7: WiFi AP
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, 0, AP_MAX_CONN);
     delay(100);
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);    // Max power for range
+    esp_wifi_set_ps(WIFI_PS_NONE);           // Disable power save
 
     // Step 8: DNS + Web server
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());

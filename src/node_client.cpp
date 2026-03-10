@@ -8,6 +8,11 @@ static NodeState state = STATE_UNREGISTERED;
 static unsigned long lastRegisterMs  = 0;
 static unsigned long lastHeartbeatMs = 0;
 static unsigned long lastSyncMs      = 0;
+static unsigned long lastCleanupMs   = 0;
+
+// Message cleanup — delete direct messages older than 48 hours
+#define MESSAGE_TTL_SECONDS  172800  // 48 hours
+#define CLEANUP_INTERVAL_MS  600000  // Run cleanup every 10 minutes
 
 // ZigBee broadcast payload limit — messages larger than this are silently dropped
 static const int XBEE_MAX_BROADCAST_BYTES = 72;
@@ -384,8 +389,49 @@ void nodeClientInit() {
     dbgprintln("[Node] Client initialized — will start REGISTER cycle");
 }
 
+static void cleanupOldMessages() {
+    JsonDocument doc;
+    readJsonFile(SD_DMS_FILE, doc);
+    if (!doc.is<JsonArray>()) return;
+
+    JsonArray arr = doc.as<JsonArray>();
+    if (arr.size() == 0) return;
+
+    // Find the latest timestamp
+    long latestTs = 0;
+    for (JsonObject m : arr) {
+        long ts = m["sent_at"] | 0L;
+        if (ts > latestTs) latestTs = ts;
+    }
+    if (latestTs == 0) return;
+
+    long cutoff = latestTs - MESSAGE_TTL_SECONDS;
+    int removed = 0;
+    int i = 0;
+    while (i < (int)arr.size()) {
+        JsonObject m = arr[i].as<JsonObject>();
+        long ts = m["sent_at"] | 0L;
+        if (ts > 0 && ts < cutoff) {
+            arr.remove(i);
+            removed++;
+        } else {
+            i++;
+        }
+    }
+
+    if (removed > 0) {
+        writeJsonFile(SD_DMS_FILE, doc);
+    }
+}
+
 void nodeClientLoop() {
     unsigned long now = millis();
+
+    // Periodic message cleanup
+    if (now - lastCleanupMs >= CLEANUP_INTERVAL_MS) {
+        lastCleanupMs = now;
+        cleanupOldMessages();
+    }
 
     switch (state) {
     case STATE_UNREGISTERED:
