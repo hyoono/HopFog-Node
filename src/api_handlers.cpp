@@ -282,17 +282,20 @@ void registerApiHandlers(AsyncWebServer& server) {
 
         writeJsonFile(SD_DMS_FILE, msgsDoc);
 
-        // Relay to admin via XBee
-        JsonDocument relayDoc;
-        relayDoc["cmd"] = "RELAY_CHAT_MSG";
-        JsonObject params = relayDoc["params"].to<JsonObject>();
-        params["conversation_id"] = convId;
-        params["sender_id"] = senderId;
-        params["message_text"] = text;
-        relayToAdmin(relayDoc);
-
         request->send(200, "application/json",
                       "{\"success\":true,\"message\":\"sent\",\"secondsRemaining\":0}");
+
+        // Relay to admin via XBee (compact format: <72 bytes for broadcast)
+        // Format: {"c":"RCM","n":"node-01","ci":1,"si":4,"t":"hello"}
+        JsonDocument relayCmd;
+        relayCmd["c"] = "RCM";
+        relayCmd["n"] = NODE_ID;
+        relayCmd["ci"] = convId;
+        relayCmd["si"] = senderId;
+        relayCmd["t"] = text;
+        String json;
+        serializeJson(relayCmd, json);
+        xbeeSendBroadcast(json.c_str(), json.length());
     });
 
     // ── POST /create-chat ───────────────────────────────────────────
@@ -441,17 +444,6 @@ void registerApiHandlers(AsyncWebServer& server) {
             convoId = newId;
         }
 
-        // Relay SOS to admin via XBee
-        JsonDocument relayDoc;
-        relayDoc["cmd"] = "SOS_ALERT";
-        JsonObject params = relayDoc["params"].to<JsonObject>();
-        params["user_id"] = userId;
-        params["conversation_id"] = convoId;
-        relayDoc["node_id"] = NODE_ID;
-        String json;
-        serializeJson(relayDoc, json);
-        xbeeSendBroadcast(json.c_str(), json.length());
-
         // Return format matching admin's /sos
         JsonDocument resp;
         resp["conversation_id"] = convoId;
@@ -459,6 +451,25 @@ void registerApiHandlers(AsyncWebServer& server) {
         String response;
         serializeJson(resp, response);
         request->send(200, "application/json", response);
+
+        // Relay SOS alert to admin via XBee (compact format: <72 bytes)
+        // Get username for the alert
+        String userName = "User";
+        for (JsonObject u : usersDoc.as<JsonArray>()) {
+            if ((u["id"] | 0) == userId) {
+                userName = u["username"] | "User";
+                break;
+            }
+        }
+        JsonDocument sosCmd;
+        sosCmd["c"] = "SOS";
+        sosCmd["n"] = NODE_ID;
+        sosCmd["si"] = userId;
+        sosCmd["sn"] = userName;
+        sosCmd["t"] = "SOS Emergency";
+        String json;
+        serializeJson(sosCmd, json);
+        xbeeSendBroadcast(json.c_str(), json.length());
     });
 
     // ── GET /new-messages ───────────────────────────────────────────
