@@ -292,7 +292,7 @@ void registerApiHandlers(AsyncWebServer& server) {
         relayToAdmin(relayDoc);
 
         request->send(200, "application/json",
-                      "{\"success\":true,\"message\":\"Message sent\"}");
+                      "{\"success\":true,\"message\":\"sent\",\"secondsRemaining\":0}");
     });
 
     // ── POST /create-chat ───────────────────────────────────────────

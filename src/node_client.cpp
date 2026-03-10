@@ -274,6 +274,97 @@ static void handleGetStats() {
     sendCommand(doc);
 }
 
+// ── Compact SYNC_DATA format handler ────────────────────────────────
+// Admin now sends "c":"SD" with "n" for node_id, "p" for part,
+// "n2" for count, "d" for record data
+static void handleCompactSyncData(JsonDocument& doc) {
+    const char* part = doc["p"] | "";
+    if (strlen(part) == 0) return;
+
+    // Count message: "n2" = number of records for this part
+    if (doc["n2"].is<int>()) {
+        // Write accumulated buffer to SD
+        JsonDocument* buf = getSyncBuffer(part);
+        if (buf) {
+            if (strcmp(part, "users") == 0) {
+                writeJsonFile(SD_USERS_FILE, *buf);
+            } else if (strcmp(part, "announcements") == 0) {
+                writeJsonFile(SD_ANNOUNCE_FILE, *buf);
+            } else if (strcmp(part, "conversations") == 0) {
+                writeJsonFile(SD_CONVOS_FILE, *buf);
+            } else if (strcmp(part, "chat_messages") == 0) {
+                writeJsonFile(SD_DMS_FILE, *buf);
+            } else if (strcmp(part, "fog_nodes") == 0) {
+                writeJsonFile(SD_FOG_FILE, *buf);
+            }
+        }
+        return;
+    }
+
+    // Single record: "d" = record object
+    if (doc["d"].is<JsonObject>()) {
+        JsonObject record = doc["d"].as<JsonObject>();
+        JsonDocument* buf = getSyncBuffer(part);
+        if (buf) {
+            buf->as<JsonArray>().add(record);
+        }
+    }
+}
+
+// ── Handle RELAY_CHAT_MSG from admin ────────────────────────────────
+// When admin relays a chat message from a user on the admin network to
+// a user on the node network, save it to SD so the recipient sees it.
+static void handleRelayChatMsg(JsonObject params) {
+    int convId = params["conversation_id"] | 0;
+    int senderId = params["sender_id"] | 0;
+    const char* text = params["message_text"] | "";
+    if (convId <= 0 || senderId <= 0 || strlen(text) == 0) return;
+
+    JsonDocument doc;
+    readJsonFile(SD_DMS_FILE, doc);
+    JsonArray arr = doc.is<JsonArray>() ? doc.as<JsonArray>() : doc.to<JsonArray>();
+
+    int maxId = 0;
+    for (JsonObject m : arr) {
+        int id = m["id"] | 0;
+        if (id > maxId) maxId = id;
+    }
+
+    JsonObject msg = arr.add<JsonObject>();
+    msg["id"] = maxId + 1;
+    msg["conversation_id"] = convId;
+    msg["sender_id"] = senderId;
+    msg["message_text"] = text;
+    msg["sent_at"] = (long)(millis() / 1000);
+
+    writeJsonFile(SD_DMS_FILE, doc);
+}
+
+// ── Handle SOS_ALERT from admin ─────────────────────────────────────
+// Store incoming SOS alert as an announcement
+static void handleSosAlert(JsonObject params) {
+    const char* username = params["username"] | "User";
+
+    JsonDocument doc;
+    readJsonFile(SD_ANNOUNCE_FILE, doc);
+    JsonArray arr = doc.is<JsonArray>() ? doc.as<JsonArray>() : doc.to<JsonArray>();
+
+    int maxId = 0;
+    for (JsonObject a : arr) {
+        int id = a["id"] | 0;
+        if (id > maxId) maxId = id;
+    }
+
+    String title = "SOS Alert from " + String(username);
+    JsonObject ann = arr.add<JsonObject>();
+    ann["id"] = maxId + 1;
+    ann["title"] = title;
+    ann["message"] = "Emergency SOS alert";
+    ann["created_at"] = String((long)(millis() / 1000));
+
+    writeJsonFile(SD_ANNOUNCE_FILE, doc);
+}
+
 // ── SYNC_BACK: send local data back to admin ───────────────────────
 
 static void sendSyncBackPart(const char* partName, const char* sdFile) {
@@ -469,32 +560,54 @@ bool nodeClientHandleCommand(const char* payload, size_t len) {
     DeserializationError err = deserializeJson(doc, payload, len);
     if (err) return false;
 
-    const char* cmd = doc["cmd"];
-    if (!cmd) return false;
+    // Check for compact format first: "c" key
+    const char* compactCmd = doc["c"] | (const char*)nullptr;
+    const char* legacyCmd  = doc["cmd"] | (const char*)nullptr;
 
-    dbgprintf("[Node] RX cmd: %s\n", cmd);
+    if (compactCmd) {
+        // ── Compact format from admin sync ──
+        if (strcmp(compactCmd, "SD") == 0) {
+            handleCompactSyncData(doc);
+            return true;
+        } else if (strcmp(compactCmd, "SC") == 0) {
+            handleSyncContinuation(doc);
+            return true;
+        } else if (strcmp(compactCmd, "DONE") == 0) {
+            handleSyncDone();
+            return true;
+        }
+    }
 
-    if (strcmp(cmd, "REGISTER_ACK") == 0) {
+    if (!legacyCmd) return false;  // No command found
+
+    dbgprintf("[Node] RX cmd: %s\n", legacyCmd);
+
+    // ── Legacy format ──
+    if (strcmp(legacyCmd, "REGISTER_ACK") == 0) {
         handleRegisterAck();
-    } else if (strcmp(cmd, "PONG") == 0) {
+    } else if (strcmp(legacyCmd, "PONG") == 0) {
         handlePong();
-    } else if (strcmp(cmd, "SYNC_DATA") == 0) {
+    } else if (strcmp(legacyCmd, "SYNC_DATA") == 0) {
         handleSyncData(doc);
-    } else if (strcmp(cmd, "SC") == 0) {
+    } else if (strcmp(legacyCmd, "SC") == 0) {
         handleSyncContinuation(doc);
-    } else if (strcmp(cmd, "SYNC_DONE") == 0) {
+    } else if (strcmp(legacyCmd, "SYNC_DONE") == 0) {
         handleSyncDone();
-    } else if (strcmp(cmd, "PING") == 0) {
+    } else if (strcmp(legacyCmd, "PING") == 0) {
         // Admin sends PING every 10s — reply with PONG
         JsonDocument pong;
         pong["cmd"] = "PONG";
         sendCommand(pong);
-    } else if (strcmp(cmd, "BROADCAST_MSG") == 0) {
+    } else if (strcmp(legacyCmd, "BROADCAST_MSG") == 0) {
         handleBroadcastMsg(doc["params"].as<JsonObject>());
-    } else if (strcmp(cmd, "GET_STATS") == 0) {
+    } else if (strcmp(legacyCmd, "RELAY_CHAT_MSG") == 0) {
+        handleRelayChatMsg(doc["params"].as<JsonObject>());
+    } else if (strcmp(legacyCmd, "SOS_ALERT") == 0) {
+        handleSosAlert(doc["params"].as<JsonObject>());
+    } else if (strcmp(legacyCmd, "GET_STATS") == 0) {
         handleGetStats();
     } else {
-        dbgprintf("[Node] Unknown admin command: %s\n", cmd);
+        dbgprintf("[Node] Unknown admin command: %s\n", legacyCmd);
         return false;
     }
     return true;
