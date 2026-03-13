@@ -10,9 +10,11 @@ enum ConnectionStatus {
     CONN_CONNECTED       // PONG received within 30s — GREEN constant
 };
 
-// LED GPIO pins (external RGB LED + built-in status LED)
-#define LED_R  12   // External red LED
-#define LED_G  16   // External green LED
+// LED GPIO pins
+// On ESP32-CAM: GPIO 12 is a strapping pin (boot failure risk),
+// GPIO 16 is PSRAM (pinMode crashes system). Only GPIO 33 is safe.
+#define LED_R  -1   // Not available on ESP32-CAM (GPIO 12 = strapping pin)
+#define LED_G  -1   // Not available on ESP32-CAM (GPIO 16 = PSRAM)
 #define LED_B  33   // Built-in status LED (active LOW)
 
 /// Initialize LED pins

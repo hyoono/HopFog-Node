@@ -53,8 +53,9 @@ void setup() {
     // Step 6: Node client
     nodeClientInit();
 
-    // Step 6b: Battery sensor (INA219 on I2C — SDA=GPIO14, SCL=GPIO15)
-    batteryInit(14, 15);
+    // Step 6b: Battery sensor (INA219 on I2C)
+    // Note: GPIO 14/15 are SD SPI pins on ESP32-CAM — use default 21/22
+    batteryInit();
 
     // Step 6c: LED status indicators
     ledStatusInit();

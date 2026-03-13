@@ -21,7 +21,8 @@ struct BatteryInfo {
 
 /// Initialize INA219 sensor on given I2C pins.
 /// Returns true if sensor found, false otherwise.
-bool batteryInit(int sdaPin = 14, int sclPin = 15);
+/// Note: On ESP32-CAM, GPIO 14/15 are SD card SPI pins — use 21/22 or other safe pins.
+bool batteryInit(int sdaPin = 21, int sclPin = 22);
 
 /// Read current battery state. Returns safe defaults if sensor unavailable.
 BatteryInfo batteryRead();

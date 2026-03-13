@@ -1,20 +1,25 @@
 #include "led_status.h"
 
 void ledStatusInit() {
-    pinMode(LED_R, OUTPUT);
-    pinMode(LED_G, OUTPUT);
-    pinMode(LED_B, OUTPUT);
-    // All off initially
-    digitalWrite(LED_R, LOW);
-    digitalWrite(LED_G, LOW);
-    digitalWrite(LED_B, HIGH);  // Active LOW
+    if (LED_R >= 0) {
+        pinMode(LED_R, OUTPUT);
+        digitalWrite(LED_R, LOW);
+    }
+    if (LED_G >= 0) {
+        pinMode(LED_G, OUTPUT);
+        digitalWrite(LED_G, LOW);
+    }
+    if (LED_B >= 0) {
+        pinMode(LED_B, OUTPUT);
+        digitalWrite(LED_B, HIGH);  // Active LOW
+    }
 }
 
 // Internal helper: set RGB LED color
 static void setLed(bool r, bool g, bool b) {
-    digitalWrite(LED_R, r ? HIGH : LOW);
-    digitalWrite(LED_G, g ? HIGH : LOW);
-    digitalWrite(LED_B, b ? LOW : HIGH);  // Active LOW
+    if (LED_R >= 0) { digitalWrite(LED_R, r ? HIGH : LOW); }
+    if (LED_G >= 0) { digitalWrite(LED_G, g ? HIGH : LOW); }
+    if (LED_B >= 0) { digitalWrite(LED_B, b ? LOW : HIGH); }  // Active LOW
 }
 
 void ledStatusUpdate(ConnectionStatus conn, int batPct, bool charging) {
