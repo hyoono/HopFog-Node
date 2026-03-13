@@ -11,6 +11,8 @@
 #include "xbee_comm.h"
 #include "node_client.h"
 #include "web_server.h"
+#include "battery.h"
+#include "led_status.h"
 
 AsyncWebServer server(HTTP_PORT);
 DNSServer      dnsServer;
@@ -51,6 +53,12 @@ void setup() {
     // Step 6: Node client
     nodeClientInit();
 
+    // Step 6b: Battery sensor (INA219 on I2C — SDA=GPIO14, SCL=GPIO15)
+    batteryInit(14, 15);
+
+    // Step 6c: LED status indicators
+    ledStatusInit();
+
     // Step 7: WiFi AP
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, 0, AP_MAX_CONN);
@@ -71,5 +79,23 @@ void loop() {
     dnsServer.processNextRequest();
     xbeeProcessIncoming();
     nodeClientLoop();
+
+    // Update LED status every ~200ms
+    static unsigned long lastLedMs = 0;
+    if (millis() - lastLedMs > 200) {
+        lastLedMs = millis();
+        ConnectionStatus conn;
+        if (nodeClientGetLastPongMs() > 0 &&
+            millis() - nodeClientGetLastPongMs() < 30000) {
+            conn = CONN_CONNECTED;
+        } else if (nodeClientGetState() != STATE_UNREGISTERED) {
+            conn = CONN_SEARCHING;
+        } else {
+            conn = CONN_DISCONNECTED;
+        }
+        BatteryInfo bat = batteryRead();
+        ledStatusUpdate(conn, bat.percentage, bat.status == BAT_CHARGING);
+    }
+
     delay(10);  // Prevent 100% CPU spin; matches working test project timing
 }

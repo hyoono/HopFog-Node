@@ -25,6 +25,9 @@ bool nodeClientHandleCommand(const char* payload, size_t len);
 /// Get current state (for diagnostic display).
 NodeState nodeClientGetState();
 
+/// Get millis() timestamp of last PONG received (0 if none).
+unsigned long nodeClientGetLastPongMs();
+
 /// Manually trigger a REGISTER broadcast (resets state to UNREGISTERED).
 void nodeClientTriggerRegister();
 

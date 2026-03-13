@@ -2,6 +2,7 @@
 #include "config.h"
 #include "xbee_comm.h"
 #include "sd_storage.h"
+#include "battery.h"
 #include <WiFi.h>
 
 static NodeState state = STATE_UNREGISTERED;
@@ -9,10 +10,15 @@ static unsigned long lastRegisterMs  = 0;
 static unsigned long lastHeartbeatMs = 0;
 static unsigned long lastSyncMs      = 0;
 static unsigned long lastCleanupMs   = 0;
+static unsigned long lastPongReceivedMs = 0;
+static unsigned long lastSyncRxMs    = 0;
 
 // Message cleanup — delete direct messages older than 48 hours
 #define MESSAGE_TTL_SECONDS  172800  // 48 hours
 #define CLEANUP_INTERVAL_MS  600000  // Run cleanup every 10 minutes
+
+// Sync watchdog — abort sync if stuck for 30 seconds
+#define SYNC_WATCHDOG_MS     30000
 
 // ZigBee broadcast payload limit — messages larger than this are silently dropped
 static const int XBEE_MAX_BROADCAST_BYTES = 72;
@@ -77,11 +83,19 @@ static void sendHeartbeat() {
     JsonObject p = doc["params"].to<JsonObject>();
     p["up"] = (int)(millis() / 1000);
     p["heap"] = (int)(ESP.getFreeHeap() / 1024);  // KB not bytes
+
+    // Battery data from INA219
+    BatteryInfo bat = batteryRead();
+    p["bat_v"] = (int)(bat.voltage * 100) / 100.0f;  // 2 decimal places
+    p["bat_pct"] = bat.percentage;
+    p["bat_s"] = batteryStatusStr(bat.status);
+
     sendCommand(doc);
 }
 
 static void sendSyncRequest() {
     initSyncBuffers();  // Clear buffers before receiving new sync
+    lastSyncRxMs = 0;   // Reset watchdog
     JsonDocument doc;
     doc["cmd"] = "SYNC_REQUEST";
     sendCommand(doc);
@@ -100,10 +114,12 @@ static void handleRegisterAck() {
 }
 
 static void handlePong() {
+    lastPongReceivedMs = millis();
     dbgprintln("[Node] Got PONG");
 }
 
 static void handleSyncData(JsonDocument& doc) {
+    lastSyncRxMs = millis();
     dbgprintln("[Node] Got SYNC_DATA — saving to SD card...");
 
     const char* part = doc["part"] | "";
@@ -209,6 +225,7 @@ static void handleSyncDone() {
 }
 
 static void handleSyncContinuation(JsonDocument& doc) {
+    lastSyncRxMs = millis();
     // SC = Sync Continuation: appends text to a field in a previously
     // received record. Used for long text fields that exceeded the
     // 240-byte XBee unicast limit.
@@ -278,6 +295,7 @@ static void handleGetStats() {
 // Admin now sends "c":"SD" with "n" for node_id, "p" for part,
 // "n2" for count, "d" for record data
 static void handleCompactSyncData(JsonDocument& doc) {
+    lastSyncRxMs = millis();
     const char* part = doc["p"] | "";
     if (strlen(part) == 0) return;
 
@@ -543,6 +561,12 @@ void nodeClientLoop() {
             sendSyncRequest();
             lastSyncMs = now;
         }
+        // Sync watchdog: abort if no sync data received for 30 seconds
+        if (lastSyncRxMs > 0 && now - lastSyncRxMs >= SYNC_WATCHDOG_MS) {
+            // Write whatever data was accumulated so far
+            handleSyncDone();
+            lastSyncRxMs = 0;
+        }
         break;
 
     case STATE_RUNNING:
@@ -615,6 +639,10 @@ bool nodeClientHandleCommand(const char* payload, size_t len) {
 
 NodeState nodeClientGetState() {
     return state;
+}
+
+unsigned long nodeClientGetLastPongMs() {
+    return lastPongReceivedMs;
 }
 
 void nodeClientTriggerRegister() {
