@@ -77,18 +77,19 @@ static void sendRegister() {
 }
 
 static void sendHeartbeat() {
-    // MUST be < 72 bytes for ZigBee broadcast
+    // Keep payload compact for ZigBee broadcast (72-byte soft limit)
     JsonDocument doc;
     doc["cmd"] = "HEARTBEAT";
-    JsonObject p = doc["params"].to<JsonObject>();
-    p["up"] = (int)(millis() / 1000);
-    p["heap"] = (int)(ESP.getFreeHeap() / 1024);  // KB not bytes
+    doc["up"] = (int)(millis() / 1000);
+    doc["heap"] = (int)(ESP.getFreeHeap() / 1024);  // KB not bytes
 
-    // Battery data from INA219
+    // Battery data from INA219 (only if sensor is connected)
     BatteryInfo bat = batteryRead();
-    p["bat_v"] = (int)(bat.voltage * 100) / 100.0f;  // 2 decimal places
-    p["bat_pct"] = bat.percentage;
-    p["bat_s"] = batteryStatusStr(bat.status);
+    if (bat.percentage >= 0) {
+        doc["bat_v"] = (int)(bat.voltage * 100) / 100.0f;  // 2 decimal places
+        doc["bat_pct"] = bat.percentage;
+        doc["bat_s"] = batteryStatusStr(bat.status);
+    }
 
     sendCommand(doc);
 }

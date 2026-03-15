@@ -53,12 +53,13 @@ void setup() {
     // Step 6: Node client
     nodeClientInit();
 
-    // Step 6b: Battery sensor (INA219 on I2C)
-    // Note: GPIO 14/15 are SD SPI pins on ESP32-CAM — use default 21/22
-    batteryInit();
-
-    // Step 6c: LED status indicators
+    // Step 6b: Flash LED status (must init before battery for GPIO 4 time-sharing)
     ledStatusInit();
+
+    // Step 6c: Battery sensor (INA219 on GPIO 4 SDA / GPIO 0 SCL)
+    // GPIO 4 is time-shared with flash LED PWM — batteryInit pauses LED
+    // briefly for I2C detection. If sensor not found, runs with LED only.
+    batteryInit(4, 0);
 
     // Step 7: WiFi AP
     WiFi.mode(WIFI_AP);

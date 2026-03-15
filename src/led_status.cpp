@@ -1,63 +1,74 @@
 #include "led_status.h"
+#include "config.h"
+
+// LEDC PWM settings for flash LED on GPIO 4
+#define LED_CHANNEL  0
+#define LED_FREQ     5000   // 5 kHz PWM
+#define LED_RES      8      // 8-bit resolution (0-255)
+
+static bool initialized = false;
+static uint8_t currentDuty = 0;
 
 void ledStatusInit() {
-    if (LED_R >= 0) {
-        pinMode(LED_R, OUTPUT);
-        digitalWrite(LED_R, LOW);
-    }
-    if (LED_G >= 0) {
-        pinMode(LED_G, OUTPUT);
-        digitalWrite(LED_G, LOW);
-    }
-    if (LED_B >= 0) {
-        pinMode(LED_B, OUTPUT);
-        digitalWrite(LED_B, HIGH);  // Active LOW
-    }
+    ledcSetup(LED_CHANNEL, LED_FREQ, LED_RES);
+    ledcAttachPin(FLASH_LED_PIN, LED_CHANNEL);
+    ledcWrite(LED_CHANNEL, 0);  // Start off
+    initialized = true;
 }
 
-// Internal helper: set RGB LED color
-static void setLed(bool r, bool g, bool b) {
-    if (LED_R >= 0) { digitalWrite(LED_R, r ? HIGH : LOW); }
-    if (LED_G >= 0) { digitalWrite(LED_G, g ? HIGH : LOW); }
-    if (LED_B >= 0) { digitalWrite(LED_B, b ? LOW : HIGH); }  // Active LOW
+void ledStatusPause() {
+    if (!initialized) return;
+    ledcDetachPin(FLASH_LED_PIN);
+}
+
+void ledStatusResume() {
+    if (!initialized) return;
+    ledcAttachPin(FLASH_LED_PIN, LED_CHANNEL);
+    ledcWrite(LED_CHANNEL, currentDuty);
 }
 
 void ledStatusUpdate(ConnectionStatus conn, int batPct, bool charging) {
-    // Battery takes priority for critical/low
+    if (!initialized) return;
+
+    // Critical battery (<5%): fast blink (10Hz)
     if (batPct >= 0 && batPct < 5) {
-        // Critical battery — RED quick pulse
-        bool on = (millis() / 200) % 2 == 0;
-        setLed(on, false, false);
+        currentDuty = (millis() / 100) % 2 == 0 ? 8 : 0;
+        ledcWrite(LED_CHANNEL, currentDuty);
         return;
     }
 
+    // Charging: slow breathe effect
     if (charging) {
-        // Charging — ORANGE constant (R+G, same as YELLOW with digital GPIO)
-        setLed(true, true, false);
+        int phase = (millis() / 20) % 256;
+        int val = phase < 128 ? phase : (255 - phase);
+        currentDuty = val / 32;  // 0-7 range for subtle glow
+        ledcWrite(LED_CHANNEL, currentDuty);
         return;
     }
 
+    // Low battery (5-15%): double blink pattern
     if (batPct >= 0 && batPct < 15) {
-        // Low battery — YELLOW constant (R+G)
-        setLed(true, true, false);
+        int phase = (millis() / 100) % 10;
+        currentDuty = (phase == 0 || phase == 2) ? 8 : 0;
+        ledcWrite(LED_CHANNEL, currentDuty);
         return;
     }
 
     // Connection status
     switch (conn) {
         case CONN_DISCONNECTED:
-            // RED constant
-            setLed(true, false, false);
+            currentDuty = 0;  // Off
             break;
         case CONN_SEARCHING: {
-            // YELLOW pulsing
-            bool on = (millis() / 500) % 2 == 0;
-            setLed(on, on, false);
+            // Slow pulse (breathe)
+            int phase = (millis() / 15) % 256;
+            int val = phase < 128 ? phase : (255 - phase);
+            currentDuty = val / 32;  // 0-7 range for subtle glow
             break;
         }
         case CONN_CONNECTED:
-            // GREEN constant
-            setLed(false, true, false);
+            currentDuty = 8;  // Solid dim glow (~3% duty)
             break;
     }
+    ledcWrite(LED_CHANNEL, currentDuty);
 }
