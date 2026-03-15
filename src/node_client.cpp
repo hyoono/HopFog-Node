@@ -86,7 +86,7 @@ static void sendHeartbeat() {
     // Battery data from INA219 (only if sensor is connected)
     BatteryInfo bat = batteryRead();
     if (bat.percentage >= 0) {
-        doc["bat_v"] = (int)(bat.voltage * 100) / 100.0f;  // 2 decimal places
+        doc["bat_v"] = (int)(bat.voltage * 100 + 0.5f) / 100.0f;  // 2 decimal places, rounded
         doc["bat_pct"] = bat.percentage;
         doc["bat_s"] = batteryStatusStr(bat.status);
     }
